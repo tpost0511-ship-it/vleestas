@@ -41,13 +41,14 @@ test('roulette rejects invalid bets and stakes above the point balance', () => {
   assert.match(validRouletteBets([{ type: 'red', stake: 0 }], 10), /minimaal 1 punt/);
 });
 
-test('daily bonus contributes to the wallet and challenge leaderboard, roulette only to wallet', () => {
+test('starting points and roulette affect only the wallet while daily bonus also affects the leaderboard', () => {
   const members = [{ id: 'me', display_name: 'Jij' }, { id: 'other', display_name: 'Ander' }];
   const challenges = [{ id: 'c1', points: 100 }];
   const participations = [{ challenge_id: 'c1', user_id: 'me', status: 'approved' }];
   const bonuses = [{ group_id: 'g1', user_id: 'me', points: DAILY_CHALLENGE_BONUS }];
   const spins = [{ group_id: 'g1', user_id: 'me', stake: 20, payout: 40 }];
+  const startingPoints = [{ group_id: 'g1', user_id: 'me', points: 100 }, { group_id: 'g1', user_id: 'other', points: 100 }];
 
-  assert.equal(pointBalance('me', challenges, participations, [], [], [], bonuses, spins), 145);
+  assert.equal(pointBalance('me', challenges, participations, [], [], [], bonuses, spins, startingPoints), 245);
   assert.equal(ranking(members, challenges, participations, bonuses)[0].points, 125);
 });

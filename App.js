@@ -1,5 +1,5 @@
 const React = window.React;
-const { useCallback, useEffect, useMemo, useState } = React;
+const { useCallback, useEffect, useMemo, useRef, useState } = React;
 import { Trophy, Flame, Sparkles, Users, House, Plus, Check, Clock3, ArrowRight, CheckCircle2, X, Link2, Copy, LogOut, ChevronDown, Search, Medal, ShieldCheck, RefreshCcw, PartyPopper, Dumbbell, Mountain, LockKeyhole, UploadCloud, CheckCheck, Zap, Target, UserPlus, Crown, TrendingUp, AlertCircle, CircleCheckBig, Image, RotateCcw, ExternalLink, Gift } from './lib/icons.js';
 import { isDemo, currentSession, watchAuth, logIn, signUp, logOut, getProfile, listGroups, createGroup, joinGroup, loadGroup, addChallenge, cancelChallenge, withdrawChallenge, addShopItem, buyShopItem, acceptChallenge, submitProof, reviewSubmission, spinRoulette, getProofUrl, subscribeToGroup } from './lib/data.js';
 import { CATEGORIES, categoryFor, ranking, challengeState, shortName, formatDate, inviteLink, validChallenge, validShopItem, pointBalance, rouletteColor } from './lib/game.js';
@@ -240,7 +240,49 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
     const [bets, setBets] = useState([]);
     const [lastSpin, setLastSpin] = useState(null);
     const [spinCount, setSpinCount] = useState(0);
+    const [ballRotation, setBallRotation] = useState(0);
+    const [spinning, setSpinning] = useState(false);
     const [error, setError] = useState('');
+    const audioContextRef = useRef(null);
+    useEffect(() => () => {
+        const context = audioContextRef.current;
+        if (context && context.state !== 'closed') {
+            context.close().catch(err => console.warn('Roulettegeluid kon niet worden afgesloten.', err));
+        }
+    }, []);
+    const getAudioContext = () => {
+        if (audioContextRef.current) return audioContextRef.current;
+        const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextConstructor) return null;
+        try {
+            audioContextRef.current = new AudioContextConstructor();
+            audioContextRef.current.resume().catch(err => console.warn('Roulettegeluid kon niet worden gestart.', err));
+            return audioContextRef.current;
+        }
+        catch (err) {
+            console.warn('Roulettegeluid is niet beschikbaar.', err);
+            return null;
+        }
+    };
+    const playBallDropSound = context => {
+        if (!context || context.state !== 'running') return;
+        const start = context.currentTime;
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = 'triangle';
+        oscillator.frequency.setValueAtTime(900, start);
+        oscillator.frequency.exponentialRampToValueAtTime(280, start + 0.16);
+        gain.gain.setValueAtTime(0.18, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.18);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.onended = () => {
+            oscillator.disconnect();
+            gain.disconnect();
+        };
+        oscillator.start(start);
+        oscillator.stop(start + 0.19);
+    };
     const totalStake = bets.reduce((total, bet) => total + bet.stake, 0);
     const remaining = Math.max(0, balance - totalStake);
     const canPlace = Number.isSafeInteger(Number(amount)) && Number(amount) > 0 && Number(amount) <= remaining && bets.length < 100;
@@ -266,12 +308,23 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
         setError('');
     };
     const handleSpin = async () => {
+        if (spinning || busy || bets.length === 0) return;
+        setSpinning(true);
+        const audioContext = getAudioContext();
         const result = await onSpin(bets.map(({ type, value, stake }) => ({ type, value, stake })));
         if (result) {
             setLastSpin(result);
             setSpinCount(count => count + 1);
+            setBallRotation(rotation => rotation - 1800);
             setBets([]);
             setError('');
+            const duration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 100 : 4300;
+            await new Promise(resolve => window.setTimeout(resolve, duration));
+            setSpinning(false);
+            playBallDropSound(audioContext);
+        }
+        else {
+            setSpinning(false);
         }
     };
     const wheelSegment = 360 / europeanRouletteWheel.length;
@@ -289,7 +342,7 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
             key: number,
             type: "button",
             className: `roulette-number roulette-number--${color}${bet ? ' roulette-number--selected' : ''}`,
-            disabled: !canPlace || busy,
+            disabled: !canPlace || busy || spinning,
             title: `Zet ${amount} punten in op ${number} (35:1)`,
             onClick: () => placeBet('number', number, `Getal ${number}`)
         },
@@ -307,8 +360,8 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
             React.createElement("div", { className: "roulette-wallet" },
                 React.createElement("span", null, "Saldo"),
                 React.createElement("strong", null, balance, " pt"))),
-        React.createElement("p", { className: "roulette-rules" }, "0–36 · standaard uitbetalingen · je inzet wordt alleen in punten afgerekend. Nul wint nooit op rood/zwart, even/oneven of 1–18/19–36."),
-            React.createElement("div", { className: "roulette-wheel-wrap", "aria-label": lastSpin ? `Winnende nummer ${lastSpin.winning_number}` : 'Europees roulettewiel' },
+        React.createElement("p", { className: "roulette-rules" }, "0–36 · standaard uitbetalingen · je inzet wordt alleen in punten afgerekend. Iedereen start per groep met 100 punten. Nul wint nooit op rood/zwart, even/oneven of 1–18/19–36."),
+            React.createElement("div", { className: `roulette-wheel-wrap${spinning ? ' roulette-wheel-wrap--spinning' : ''}`, "aria-label": lastSpin ? `Winnende nummer ${lastSpin.winning_number}` : 'Europees roulettewiel' },
                 React.createElement("span", { className: "roulette-wheel-pointer" }),
                 React.createElement("div", { className: "roulette-wheel", style: { background: wheelBackground, transform: `rotate(${wheelRotation}deg)` } },
                     europeanRouletteWheel.map((number, index) => {
@@ -316,9 +369,11 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
                         return React.createElement("span", {
                             className: "roulette-wheel-label",
                             key: number,
-                            style: { transform: `translate(-50%,-50%) rotate(${angle}deg) translateY(-83px) rotate(${-angle}deg)` }
+                            style: { transform: `translate(-50%,-50%) rotate(${angle}deg) translateY(var(--roulette-label-radius,-83px)) rotate(${-angle}deg)` }
                         }, number);
                     })),
+                React.createElement("div", { className: "roulette-ball-track", style: { transform: `rotate(${ballRotation}deg)` } },
+                    React.createElement("span", { className: "roulette-ball" })),
             React.createElement("div", { className: "roulette-wheel-center" }, lastSpin ? lastSpin.winning_number : "VleesTas")),
         React.createElement("label", { className: "roulette-stake-label" },
             "Inzet per vakje",
@@ -329,7 +384,7 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
                 max: Math.max(1, remaining),
                 step: 1,
                 value: amount,
-                disabled: balance < 1 || busy,
+                disabled: balance < 1 || busy || spinning,
                 onChange: event => setAmount(event.target.value === '' ? '' : Number(event.target.value))
             })),
         React.createElement("h3", null, "Kies een nummer · 35:1"),
@@ -343,7 +398,7 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
                 key: bet.type,
                 type: "button",
                 className: `roulette-outside-bet${bet.type === 'red' ? ' roulette-number--red' : bet.type === 'black' ? ' roulette-number--black' : ''}${existing ? ' roulette-number--selected' : ''}`,
-                disabled: !canPlace || busy,
+                disabled: !canPlace || busy || spinning,
                 onClick: () => placeBet(bet.type, undefined, bet.label)
             }, bet.label, existing && React.createElement("small", null, existing.stake));
         })),
@@ -354,7 +409,7 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
                 key: bet.type,
                 type: "button",
                 className: `roulette-group-bet${existing ? ' roulette-number--selected' : ''}`,
-                disabled: !canPlace || busy,
+                disabled: !canPlace || busy || spinning,
                 onClick: () => placeBet(bet.type, undefined, bet.label)
             }, bet.label, existing && React.createElement("small", null, existing.stake));
         })),
@@ -365,15 +420,15 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
             bets.length ? React.createElement("div", { className: "roulette-bet-list" }, bets.map(bet => React.createElement("div", { className: "roulette-bet", key: bet.id },
                 React.createElement("span", null, bet.label),
                 React.createElement("strong", null, bet.stake, " pt"),
-                React.createElement("button", { type: "button", "aria-label": `Verwijder inzet ${bet.label}`, onClick: () => setBets(current => current.filter(item => item.id !== bet.id)) }, React.createElement(X, { size: 15 }))))
+                React.createElement("button", { type: "button", "aria-label": `Verwijder inzet ${bet.label}`, disabled: spinning || busy, onClick: () => setBets(current => current.filter(item => item.id !== bet.id)) }, React.createElement(X, { size: 15 }))))
                 ) : React.createElement("p", { className: "roulette-empty-bets" }, "Kies een inzet om te beginnen."),
             error && React.createElement("p", { className: "roulette-error", role: "alert" }, error),
             React.createElement("button", {
-                className: `button button--primary roulette-spin-button${busy ? ' roulette-spin-button--spinning' : ''}`,
+                className: `button button--primary roulette-spin-button${busy || spinning ? ' roulette-spin-button--spinning' : ''}`,
                 type: "button",
-                disabled: busy || bets.length === 0 || totalStake > balance,
+                disabled: busy || spinning || bets.length === 0 || totalStake > balance,
                 onClick: handleSpin
-            }, React.createElement(RotateCcw, { size: 18 }), busy ? " Roulette draait..." : " Draaien"),
+            }, React.createElement(RotateCcw, { size: 18 }), busy || spinning ? " De kogel rolt..." : " Draaien"),
             shownResult && React.createElement("div", { className: "roulette-result", "aria-live": "polite" },
                 React.createElement("span", { className: `roulette-result-number roulette-number--${rouletteColor(Number(shownResult.winning_number))}` }, shownResult.winning_number),
                 React.createElement("div", null,
@@ -392,7 +447,7 @@ export default function App() {
     const [members, setMembers] = useState([]), [challenges, setChallenges] = useState([]), [participations, setParticipations] = useState([]);
     const [challengeFunds, setChallengeFunds] = useState([]), [challengeAwards, setChallengeAwards] = useState([]);
     const [shopItems, setShopItems] = useState([]), [shopPurchases, setShopPurchases] = useState([]);
-    const [dailyBonuses, setDailyBonuses] = useState([]), [rouletteSpins, setRouletteSpins] = useState([]);
+    const [dailyBonuses, setDailyBonuses] = useState([]), [rouletteSpins, setRouletteSpins] = useState([]), [groupStartingPoints, setGroupStartingPoints] = useState([]);
     const [tab, setTab] = useState('home'), [modal, setModal] = useState(null), [busy, setBusy] = useState(false);
     const [toast, setToast] = useState(null), [filter, setFilter] = useState('alles'), [search, setSearch] = useState('');
     const [groupName, setGroupName] = useState(''), [joinCode, setJoinCode] = useState('');
@@ -414,7 +469,7 @@ export default function App() {
     const completed = myParticipations.filter(p => p.status === 'approved').length;
     const active = myParticipations.filter(p => p.status === 'accepted' || p.status === 'rejected').length;
     const profileName = profile?.display_name || 'Speler';
-    const shopBalance = pointBalance(profile?.id, challenges, participations, shopPurchases, challengeFunds, challengeAwards, dailyBonuses, rouletteSpins);
+    const shopBalance = pointBalance(profile?.id, challenges, participations, shopPurchases, challengeFunds, challengeAwards, dailyBonuses, rouletteSpins, groupStartingPoints);
     const challengeCost = Number(newChallenge.points) * Number(newChallenge.reward_slots);
     useEffect(() => { let live = true; currentSession().then(({ user: u }) => { if (live)
         setUser(u); }).catch(err => { if (live)
@@ -449,9 +504,10 @@ export default function App() {
         setShopPurchases([]);
         setDailyBonuses([]);
         setRouletteSpins([]);
+        setGroupStartingPoints([]);
         return;
     } let cancelled = false; setGroupLoading(true); localStorage.setItem('puntjacht-active-group', groupId); loadGroup(groupId).then(data => { if (cancelled)
-        return; setMembers(data.members); setChallenges(data.challenges); setParticipations(data.participations); setChallengeFunds(data.challengeFunds); setChallengeAwards(data.challengeAwards); setShopItems(data.shopItems); setShopPurchases(data.shopPurchases); setDailyBonuses(data.dailyBonuses); setRouletteSpins(data.rouletteSpins); }).catch(err => { if (!cancelled)
+        return; setMembers(data.members); setChallenges(data.challenges); setParticipations(data.participations); setChallengeFunds(data.challengeFunds); setChallengeAwards(data.challengeAwards); setShopItems(data.shopItems); setShopPurchases(data.shopPurchases); setDailyBonuses(data.dailyBonuses); setRouletteSpins(data.rouletteSpins); setGroupStartingPoints(data.groupStartingPoints); }).catch(err => { if (!cancelled)
         showToast(err.message, true); }).finally(() => { if (!cancelled)
         setGroupLoading(false); }); return () => { cancelled = true; }; }, [groupId, reloadTick]);
     useEffect(() => { if (!groupId)

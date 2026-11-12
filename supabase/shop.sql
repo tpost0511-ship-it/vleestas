@@ -117,6 +117,14 @@ create index if not exists roulette_spins_group_created_idx
 create index if not exists roulette_spins_user_group_idx
   on public.roulette_spins (group_id, user_id);
 
+create table if not exists public.group_starting_points (
+  group_id uuid not null references public.groups(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete restrict,
+  points integer not null default 100 check (points = 100),
+  granted_at timestamptz not null default now(),
+  primary key (group_id, user_id)
+);
+
 alter table public.shop_items enable row level security;
 alter table public.shop_purchases enable row level security;
 alter table public.challenge_funds enable row level security;
@@ -124,6 +132,7 @@ alter table public.challenge_reservations enable row level security;
 alter table public.challenge_awards enable row level security;
 alter table public.daily_challenge_bonuses enable row level security;
 alter table public.roulette_spins enable row level security;
+alter table public.group_starting_points enable row level security;
 
 drop policy if exists "Group members can read shop items" on public.shop_items;
 create policy "Group members can read shop items"
@@ -196,6 +205,16 @@ create policy "Group members can read roulette spins"
     )
   );
 
+drop policy if exists "Group members can read group starting points" on public.group_starting_points;
+create policy "Group members can read group starting points"
+  on public.group_starting_points for select to authenticated
+  using (
+    exists (
+      select 1 from public.group_members gm
+      where gm.group_id = group_starting_points.group_id and gm.user_id = auth.uid()
+    )
+  );
+
 revoke all on public.shop_items from anon, authenticated;
 grant select, insert on public.shop_items to authenticated;
 revoke all on public.shop_purchases from anon, authenticated;
@@ -209,6 +228,34 @@ revoke all on public.daily_challenge_bonuses from anon, authenticated;
 grant select on public.daily_challenge_bonuses to authenticated;
 revoke all on public.roulette_spins from anon, authenticated;
 grant select on public.roulette_spins to authenticated;
+revoke all on public.group_starting_points from anon, authenticated;
+grant select on public.group_starting_points to authenticated;
+
+create or replace function public.grant_group_starting_points()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  insert into public.group_starting_points (group_id, user_id)
+  values (new.group_id, new.user_id)
+  on conflict (group_id, user_id) do nothing;
+  return new;
+end;
+$$;
+
+revoke all on function public.grant_group_starting_points() from public, anon, authenticated;
+drop trigger if exists group_members_grant_starting_points on public.group_members;
+create trigger group_members_grant_starting_points
+  after insert on public.group_members
+  for each row
+  execute function public.grant_group_starting_points();
+
+insert into public.group_starting_points (group_id, user_id)
+select gm.group_id, gm.user_id
+from public.group_members gm
+on conflict (group_id, user_id) do nothing;
 
 create or replace function public.award_daily_challenge_bonus()
 returns trigger
@@ -282,6 +329,11 @@ as $$
       select sum(s.payout - s.stake)::bigint
       from public.roulette_spins s
       where s.user_id = p_user_id and s.group_id = p_group_id
+    ), 0)
+    + coalesce((
+      select sum(gsp.points)::bigint
+      from public.group_starting_points gsp
+      where gsp.user_id = p_user_id and gsp.group_id = p_group_id
     ), 0)
     + coalesce((
       select sum(
