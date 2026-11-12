@@ -13,6 +13,8 @@ const frontendFiles = [
   'config.js',
   'manifest.webmanifest',
   'favicon.svg',
+  'favicon.png',
+  'logo.png',
   'apple-touch-icon.png',
   'icon-192.png',
   'icon-512.png',
