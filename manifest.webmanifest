@@ -1,7 +1,7 @@
 {
-  "name": "Puntjacht - challenges met vrienden",
-  "short_name": "Puntjacht",
-  "description": "Daag je vrienden uit en verdien punten.",
+  "name": "Al 4 jaar VleesTas",
+  "short_name": "VleesTas",
+  "description": "Daag je vrienden uit, verdien punten en vier 4 jaar VleesTas.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
