@@ -20,6 +20,8 @@ const frontendFiles = [
   'icon-512.png',
 ];
 
+const libraryFiles = ['data.js', 'game.js', 'icons.js'];
+
 await rm(dist, { recursive: true, force: true });
 await mkdir(path.join(dist, 'lib'), { recursive: true });
 
@@ -27,7 +29,6 @@ for (const file of frontendFiles) {
   await cp(path.join(root, file), path.join(dist, file));
 }
 
-await cp(path.join(root, 'lib'), path.join(dist, 'lib'), {
-  recursive: true,
-  filter: (source) => !source.endsWith('.sql'),
-});
+for (const file of libraryFiles) {
+  await cp(path.join(root, 'lib', file), path.join(dist, 'lib', file));
+}
