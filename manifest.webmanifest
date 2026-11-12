@@ -1,0 +1,14 @@
+{
+  "name": "Puntjacht - challenges met vrienden",
+  "short_name": "Puntjacht",
+  "description": "Daag je vrienden uit en verdien punten.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f6fb",
+  "theme_color": "#111427",
+  "icons": [
+    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
