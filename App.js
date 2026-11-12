@@ -1,6 +1,6 @@
 const React = window.React;
 const { useCallback, useEffect, useMemo, useRef, useState } = React;
-import { Trophy, Flame, Sparkles, Users, House, Plus, Check, Clock3, ArrowRight, CheckCircle2, X, Link2, Copy, LogOut, ChevronDown, Search, Medal, ShieldCheck, RefreshCcw, PartyPopper, Dumbbell, Mountain, LockKeyhole, UploadCloud, CheckCheck, Zap, Target, UserPlus, Crown, TrendingUp, AlertCircle, CircleCheckBig, Image, RotateCcw, ExternalLink, Gift } from './lib/icons.js';
+import { Trophy, Flame, Sparkles, Users, House, Plus, Check, Clock3, ArrowRight, CheckCircle2, X, Link2, Copy, LogOut, Search, Medal, ShieldCheck, RefreshCcw, PartyPopper, Dumbbell, Mountain, LockKeyhole, UploadCloud, CheckCheck, Zap, Target, UserPlus, Crown, TrendingUp, AlertCircle, CircleCheckBig, Image, RotateCcw, ExternalLink, Gift } from './lib/icons.js';
 import { isDemo, currentSession, watchAuth, logIn, signUp, logOut, getProfile, listGroups, createGroup, joinGroup, loadGroup, addChallenge, cancelChallenge, withdrawChallenge, addShopItem, buyShopItem, acceptChallenge, submitProof, reviewSubmission, spinRoulette, getProofUrl, subscribeToGroup } from './lib/data.js';
 import { CATEGORIES, categoryFor, ranking, challengeState, shortName, formatDate, inviteLink, validChallenge, validShopItem, pointBalance, rouletteColor } from './lib/game.js';
 const IconFor = { avontuur: Mountain, sport: Dumbbell, sociaal: Users, grappig: PartyPopper, overig: Sparkles };
@@ -669,8 +669,7 @@ export default function App() {
                         activeGroup?.name || 'Kies een groep',
                         React.createElement("small", null,
                             members.length,
-                            " leden")),
-                    React.createElement(ChevronDown, { size: 16 })),
+                            " leden"))),
                 groupsMenu && React.createElement("div", { className: "group-dropdown" },
                     groups.map(g => React.createElement("button", { key: g.id, className: g.id === groupId ? 'selected' : '', onClick: () => { setGroupId(g.id); setGroupsMenu(false); setTab('home'); } },
                         g.name,
@@ -709,8 +708,7 @@ export default function App() {
                     React.createElement("div", { className: "mobile-header-actions" },
                         React.createElement("button", { className: "mobile-group-button", onClick: () => setModal('switch') },
                             React.createElement(Users, { size: 17 }),
-                            activeGroup?.name || 'Groep',
-                            React.createElement(ChevronDown, { size: 14 })),
+                            activeGroup?.name || 'Groep'),
                         React.createElement("button", {
                             className: "mobile-invite-button",
                             type: "button",
