@@ -88,11 +88,42 @@ create table if not exists public.challenge_awards (
 create index if not exists challenge_awards_group_idx
   on public.challenge_awards (group_id, recipient_id);
 
+create table if not exists public.daily_challenge_bonuses (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid not null references public.groups(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete restrict,
+  award_date date not null,
+  points integer not null default 25 check (points = 25),
+  created_at timestamptz not null default now(),
+  unique (user_id, award_date)
+);
+
+create index if not exists daily_challenge_bonuses_group_idx
+  on public.daily_challenge_bonuses (group_id, award_date desc);
+
+create table if not exists public.roulette_spins (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid not null references public.groups(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete restrict,
+  bets jsonb not null check (jsonb_typeof(bets) = 'array'),
+  winning_number integer not null check (winning_number between 0 and 36),
+  stake bigint not null check (stake > 0),
+  payout bigint not null check (payout >= 0),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists roulette_spins_group_created_idx
+  on public.roulette_spins (group_id, created_at desc);
+create index if not exists roulette_spins_user_group_idx
+  on public.roulette_spins (group_id, user_id);
+
 alter table public.shop_items enable row level security;
 alter table public.shop_purchases enable row level security;
 alter table public.challenge_funds enable row level security;
 alter table public.challenge_reservations enable row level security;
 alter table public.challenge_awards enable row level security;
+alter table public.daily_challenge_bonuses enable row level security;
+alter table public.roulette_spins enable row level security;
 
 drop policy if exists "Group members can read shop items" on public.shop_items;
 create policy "Group members can read shop items"
@@ -145,6 +176,26 @@ create policy "Group members can read challenge awards"
     )
   );
 
+drop policy if exists "Group members can read daily challenge bonuses" on public.daily_challenge_bonuses;
+create policy "Group members can read daily challenge bonuses"
+  on public.daily_challenge_bonuses for select to authenticated
+  using (
+    exists (
+      select 1 from public.group_members gm
+      where gm.group_id = daily_challenge_bonuses.group_id and gm.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Group members can read roulette spins" on public.roulette_spins;
+create policy "Group members can read roulette spins"
+  on public.roulette_spins for select to authenticated
+  using (
+    exists (
+      select 1 from public.group_members gm
+      where gm.group_id = roulette_spins.group_id and gm.user_id = auth.uid()
+    )
+  );
+
 revoke all on public.shop_items from anon, authenticated;
 grant select, insert on public.shop_items to authenticated;
 revoke all on public.shop_purchases from anon, authenticated;
@@ -154,6 +205,48 @@ grant select on public.challenge_funds to authenticated;
 revoke all on public.challenge_reservations from anon, authenticated;
 revoke all on public.challenge_awards from anon, authenticated;
 grant select on public.challenge_awards to authenticated;
+revoke all on public.daily_challenge_bonuses from anon, authenticated;
+grant select on public.daily_challenge_bonuses to authenticated;
+revoke all on public.roulette_spins from anon, authenticated;
+grant select on public.roulette_spins to authenticated;
+
+create or replace function public.award_daily_challenge_bonus()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_group_id uuid;
+  v_award_date date;
+begin
+  if new.status <> 'approved' or old.status = 'approved' then
+    return new;
+  end if;
+
+  select c.group_id into v_group_id
+  from public.challenges c
+  where c.id = new.challenge_id;
+
+  if not found then
+    raise exception 'Challenge niet gevonden.';
+  end if;
+
+  v_award_date := (now() at time zone 'Europe/Amsterdam')::date;
+  insert into public.daily_challenge_bonuses (group_id, user_id, award_date)
+  values (v_group_id, new.user_id, v_award_date)
+  on conflict (user_id, award_date) do nothing;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.award_daily_challenge_bonus() from public, anon, authenticated;
+drop trigger if exists participations_award_daily_challenge_bonus on public.participations;
+create trigger participations_award_daily_challenge_bonus
+  after update of status on public.participations
+  for each row
+  execute function public.award_daily_challenge_bonus();
 
 create or replace function public.wallet_balance(p_user_id uuid, p_group_id uuid)
 returns bigint
@@ -179,6 +272,16 @@ as $$
       select sum(a.points)::bigint
       from public.challenge_awards a
       where a.recipient_id = p_user_id and a.group_id = p_group_id
+    ), 0)
+    + coalesce((
+      select sum(b.points)::bigint
+      from public.daily_challenge_bonuses b
+      where b.user_id = p_user_id and b.group_id = p_group_id
+    ), 0)
+    + coalesce((
+      select sum(s.payout - s.stake)::bigint
+      from public.roulette_spins s
+      where s.user_id = p_user_id and s.group_id = p_group_id
     ), 0)
     + coalesce((
       select sum(
@@ -614,6 +717,130 @@ $$;
 revoke all on function public.purchase_shop_item(uuid) from public, anon;
 grant execute on function public.purchase_shop_item(uuid) to authenticated;
 
+create or replace function public.spin_roulette(p_group_id uuid, p_bets jsonb)
+returns public.roulette_spins
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_bet jsonb;
+  v_type text;
+  v_value integer;
+  v_stake bigint;
+  v_total_stake bigint := 0;
+  v_payout bigint := 0;
+  v_multiplier integer;
+  v_winning_number integer;
+  v_wins boolean;
+  v_balance bigint;
+  v_clean_bets jsonb := '[]'::jsonb;
+  v_spin public.roulette_spins%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'Je moet ingelogd zijn om roulette te spelen.';
+  end if;
+
+  if jsonb_typeof(p_bets) is distinct from 'array' then
+    raise exception 'Plaats minimaal één geldige roulette-inzet.';
+  end if;
+  if jsonb_array_length(p_bets) < 1 or jsonb_array_length(p_bets) > 100 then
+    raise exception 'Plaats minimaal één en maximaal 100 inzetten.';
+  end if;
+
+  perform 1
+  from public.group_members gm
+  where gm.group_id = p_group_id and gm.user_id = auth.uid()
+  for update;
+
+  if not found then
+    raise exception 'Je bent geen lid van deze groep.';
+  end if;
+
+  v_balance := public.wallet_balance(auth.uid(), p_group_id);
+  v_winning_number := floor(random() * 37)::integer;
+
+  for v_bet in select value from jsonb_array_elements(p_bets)
+  loop
+    if jsonb_typeof(v_bet) is distinct from 'object' then
+      raise exception 'Deze roulette-inzet is ongeldig.';
+    end if;
+
+    v_type := v_bet ->> 'type';
+    if v_type is null or v_type not in (
+      'number', 'red', 'black', 'even', 'odd', 'low', 'high',
+      'dozen1', 'dozen2', 'dozen3', 'column1', 'column2', 'column3'
+    ) then
+      raise exception 'Deze roulette-inzet is ongeldig.';
+    end if;
+
+    if coalesce(v_bet ->> 'stake', '') !~ '^[0-9]+$' then
+      raise exception 'Elke inzet moet een heel aantal punten zijn.';
+    end if;
+    v_stake := (v_bet ->> 'stake')::bigint;
+    if v_stake < 1 then
+      raise exception 'Elke inzet moet minimaal 1 punt zijn.';
+    end if;
+
+    if v_type = 'number' then
+      if coalesce(v_bet ->> 'value', '') !~ '^(0|[1-9]|[12][0-9]|3[0-6])$' then
+        raise exception 'Kies voor een nummerinzet een getal van 0 tot en met 36.';
+      end if;
+      v_value := (v_bet ->> 'value')::integer;
+    else
+      v_value := null;
+    end if;
+
+    v_total_stake := v_total_stake + v_stake;
+    v_clean_bets := v_clean_bets || jsonb_build_array(
+      jsonb_build_object('type', v_type, 'stake', v_stake)
+      || case when v_type = 'number' then jsonb_build_object('value', v_value) else '{}'::jsonb end
+    );
+
+    v_multiplier := case
+      when v_type = 'number' then 36
+      when v_type in ('dozen1', 'dozen2', 'dozen3', 'column1', 'column2', 'column3') then 3
+      else 2
+    end;
+
+    v_wins := case
+      when v_type = 'number' then v_winning_number = v_value
+      when v_type = 'red' then v_winning_number = any(array[1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36])
+      when v_type = 'black' then v_winning_number between 1 and 36
+        and not (v_winning_number = any(array[1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]))
+      when v_type = 'even' then v_winning_number > 0 and mod(v_winning_number, 2) = 0
+      when v_type = 'odd' then mod(v_winning_number, 2) = 1
+      when v_type = 'low' then v_winning_number between 1 and 18
+      when v_type = 'high' then v_winning_number between 19 and 36
+      when v_type = 'dozen1' then v_winning_number between 1 and 12
+      when v_type = 'dozen2' then v_winning_number between 13 and 24
+      when v_type = 'dozen3' then v_winning_number between 25 and 36
+      when v_type = 'column1' then v_winning_number > 0 and mod(v_winning_number, 3) = 1
+      when v_type = 'column2' then v_winning_number > 0 and mod(v_winning_number, 3) = 2
+      when v_type = 'column3' then v_winning_number > 0 and mod(v_winning_number, 3) = 0
+      else false
+    end;
+
+    if v_wins then
+      v_payout := v_payout + v_stake * v_multiplier;
+    end if;
+  end loop;
+
+  if v_total_stake > v_balance then
+    raise exception 'Je hebt niet genoeg punten voor deze totale inzet.';
+  end if;
+
+  insert into public.roulette_spins (group_id, user_id, bets, winning_number, stake, payout)
+  values (p_group_id, auth.uid(), v_clean_bets, v_winning_number, v_total_stake, v_payout)
+  returning * into v_spin;
+
+  return v_spin;
+end;
+$$;
+
+revoke all on function public.spin_roulette(uuid, jsonb) from public, anon;
+grant execute on function public.spin_roulette(uuid, jsonb) to authenticated;
+
 do $$
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
@@ -640,6 +867,18 @@ begin
       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'challenge_awards'
     ) then
       alter publication supabase_realtime add table public.challenge_awards;
+    end if;
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'daily_challenge_bonuses'
+    ) then
+      alter publication supabase_realtime add table public.daily_challenge_bonuses;
+    end if;
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'roulette_spins'
+    ) then
+      alter publication supabase_realtime add table public.roulette_spins;
     end if;
   end if;
 end;

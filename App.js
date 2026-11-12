@@ -1,13 +1,14 @@
 const React = window.React;
 const { useCallback, useEffect, useMemo, useState } = React;
 import { Trophy, Flame, Sparkles, Users, House, Plus, Check, Clock3, ArrowRight, CheckCircle2, X, Link2, Copy, LogOut, ChevronDown, Search, Medal, ShieldCheck, RefreshCcw, PartyPopper, Dumbbell, Mountain, LockKeyhole, UploadCloud, CheckCheck, Zap, Target, UserPlus, Crown, TrendingUp, AlertCircle, CircleCheckBig, Image, RotateCcw, ExternalLink, Gift } from './lib/icons.js';
-import { isDemo, currentSession, watchAuth, logIn, signUp, logOut, getProfile, listGroups, createGroup, joinGroup, loadGroup, addChallenge, cancelChallenge, withdrawChallenge, addShopItem, buyShopItem, acceptChallenge, submitProof, reviewSubmission, getProofUrl, subscribeToGroup } from './lib/data.js';
-import { CATEGORIES, categoryFor, ranking, challengeState, shortName, formatDate, inviteLink, validChallenge, validShopItem, pointBalance } from './lib/game.js';
+import { isDemo, currentSession, watchAuth, logIn, signUp, logOut, getProfile, listGroups, createGroup, joinGroup, loadGroup, addChallenge, cancelChallenge, withdrawChallenge, addShopItem, buyShopItem, acceptChallenge, submitProof, reviewSubmission, spinRoulette, getProofUrl, subscribeToGroup } from './lib/data.js';
+import { CATEGORIES, categoryFor, ranking, challengeState, shortName, formatDate, inviteLink, validChallenge, validShopItem, pointBalance, rouletteColor } from './lib/game.js';
 const IconFor = { avontuur: Mountain, sport: Dumbbell, sociaal: Users, grappig: PartyPopper, overig: Sparkles };
 const navItems = [
     { key: 'home', label: 'Overzicht', icon: House },
     { key: 'challenges', label: 'Challenges', icon: Target },
     { key: 'shop', label: 'Shop', icon: Gift },
+    { key: 'roulette', label: 'Roulette', icon: RotateCcw },
     { key: 'ranking', label: 'Klassement', icon: Trophy },
     { key: 'reviews', label: 'Beoordelen', icon: ShieldCheck }
 ];
@@ -217,12 +218,181 @@ function ShopCard({ item, seller, own, canAfford, busy, onBuy }) {
             own ? 'Jouw beloning' : item.stock < 1 ? 'Uitverkocht' : !canAfford ? 'Niet genoeg punten' : 'Kopen',
             !own && canAfford && item.stock > 0 && React.createElement(ArrowRight, { size: 16 })));
 }
+const rouletteOutsideBets = [
+    { type: 'red', label: 'Rood', odds: '1:1' },
+    { type: 'black', label: 'Zwart', odds: '1:1' },
+    { type: 'even', label: 'Even', odds: '1:1' },
+    { type: 'odd', label: 'Oneven', odds: '1:1' },
+    { type: 'low', label: '1–18', odds: '1:1' },
+    { type: 'high', label: '19–36', odds: '1:1' }
+];
+const rouletteGroupBets = [
+    { type: 'dozen1', label: '1e dozijn · 1–12' },
+    { type: 'dozen2', label: '2e dozijn · 13–24' },
+    { type: 'dozen3', label: '3e dozijn · 25–36' },
+    { type: 'column1', label: 'Kolom 1' },
+    { type: 'column2', label: 'Kolom 2' },
+    { type: 'column3', label: 'Kolom 3' }
+];
+const europeanRouletteWheel = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
+function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
+    const [amount, setAmount] = useState(Math.max(1, Math.min(10, balance)));
+    const [bets, setBets] = useState([]);
+    const [lastSpin, setLastSpin] = useState(null);
+    const [spinCount, setSpinCount] = useState(0);
+    const [error, setError] = useState('');
+    const totalStake = bets.reduce((total, bet) => total + bet.stake, 0);
+    const remaining = Math.max(0, balance - totalStake);
+    const canPlace = Number.isSafeInteger(Number(amount)) && Number(amount) > 0 && Number(amount) <= remaining && bets.length < 100;
+    const placeBet = (type, value, label) => {
+        const stake = Number(amount);
+        if (!Number.isSafeInteger(stake) || stake < 1) {
+            setError('Kies een inzet van minimaal 1 punt.');
+            return;
+        }
+        if (stake > remaining) {
+            setError('Je totale inzet kan niet hoger zijn dan je saldo.');
+            return;
+        }
+        const id = `${type}:${value === undefined ? '' : value}`;
+        const existing = bets.find(bet => bet.id === id);
+        if (!existing && bets.length >= 100) {
+            setError('Je kunt maximaal 100 verschillende inzetten plaatsen.');
+            return;
+        }
+        setBets(existing
+            ? bets.map(bet => bet.id === id ? { ...bet, stake: bet.stake + stake } : bet)
+            : [...bets, { id, type, value, label, stake }]);
+        setError('');
+    };
+    const handleSpin = async () => {
+        const result = await onSpin(bets.map(({ type, value, stake }) => ({ type, value, stake })));
+        if (result) {
+            setLastSpin(result);
+            setSpinCount(count => count + 1);
+            setBets([]);
+            setError('');
+        }
+    };
+    const wheelSegment = 360 / europeanRouletteWheel.length;
+    const wheelBackground = `conic-gradient(from -${wheelSegment / 2}deg, ${europeanRouletteWheel.map((number, index) => {
+        const color = rouletteColor(number);
+        const fill = color === 'red' ? '#bd394b' : color === 'black' ? '#292a31' : '#14844d';
+        return `${fill} ${index * wheelSegment}deg ${(index + 1) * wheelSegment}deg`;
+    }).join(', ')})`;
+    const wheelIndex = lastSpin ? europeanRouletteWheel.indexOf(Number(lastSpin.winning_number)) : 0;
+    const wheelRotation = lastSpin ? spinCount * 1800 - wheelIndex * wheelSegment : 0;
+    const numberButton = number => {
+        const color = rouletteColor(number);
+        const bet = bets.find(item => item.type === 'number' && item.value === number);
+        return React.createElement("button", {
+            key: number,
+            type: "button",
+            className: `roulette-number roulette-number--${color}${bet ? ' roulette-number--selected' : ''}`,
+            disabled: !canPlace || busy,
+            title: `Zet ${amount} punten in op ${number} (35:1)`,
+            onClick: () => placeBet('number', number, `Getal ${number}`)
+        },
+            number,
+            bet && React.createElement("small", null, bet.stake));
+    };
+    const visibleSpins = spins.slice(0, 6);
+    const shownResult = lastSpin || spins.find(spin => spin.user_id === userId);
+    const resultNet = shownResult ? Number(shownResult.payout) - Number(shownResult.stake) : 0;
+    return React.createElement("section", { className: "roulette-panel" },
+        React.createElement("div", { className: "roulette-heading" },
+            React.createElement("div", null,
+                React.createElement("span", { className: "eyebrow" }, "EUROPEES ROULETTE"),
+                React.createElement("h2", null, "Zet je punten in")),
+            React.createElement("div", { className: "roulette-wallet" },
+                React.createElement("span", null, "Saldo"),
+                React.createElement("strong", null, balance, " pt"))),
+        React.createElement("p", { className: "roulette-rules" }, "0–36 · standaard uitbetalingen · je inzet wordt alleen in punten afgerekend. Nul wint nooit op rood/zwart, even/oneven of 1–18/19–36."),
+            React.createElement("div", { className: "roulette-wheel-wrap", "aria-label": lastSpin ? `Winnende nummer ${lastSpin.winning_number}` : 'Europees roulettewiel' },
+                React.createElement("span", { className: "roulette-wheel-pointer" }),
+                React.createElement("div", { className: "roulette-wheel", style: { background: wheelBackground, transform: `rotate(${wheelRotation}deg)` } },
+                    europeanRouletteWheel.map((number, index) => {
+                        const angle = index * wheelSegment;
+                        return React.createElement("span", {
+                            className: "roulette-wheel-label",
+                            key: number,
+                            style: { transform: `translate(-50%,-50%) rotate(${angle}deg) translateY(-83px) rotate(${-angle}deg)` }
+                        }, number);
+                    })),
+            React.createElement("div", { className: "roulette-wheel-center" }, lastSpin ? lastSpin.winning_number : "VleesTas")),
+        React.createElement("label", { className: "roulette-stake-label" },
+            "Inzet per vakje",
+            React.createElement("span", null, "Punten"),
+            React.createElement("input", {
+                type: "number",
+                min: 1,
+                max: Math.max(1, remaining),
+                step: 1,
+                value: amount,
+                disabled: balance < 1 || busy,
+                onChange: event => setAmount(event.target.value === '' ? '' : Number(event.target.value))
+            })),
+        React.createElement("h3", null, "Kies een nummer · 35:1"),
+        React.createElement("div", { className: "roulette-number-table" },
+            numberButton(0),
+            React.createElement("div", { className: "roulette-number-grid" }, Array.from({ length: 36 }, (_, index) => numberButton(index + 1)))),
+        React.createElement("h3", null, "Buiteninzetten · 1:1"),
+        React.createElement("div", { className: "roulette-outside-grid" }, rouletteOutsideBets.map(bet => {
+            const existing = bets.find(item => item.type === bet.type);
+            return React.createElement("button", {
+                key: bet.type,
+                type: "button",
+                className: `roulette-outside-bet${bet.type === 'red' ? ' roulette-number--red' : bet.type === 'black' ? ' roulette-number--black' : ''}${existing ? ' roulette-number--selected' : ''}`,
+                disabled: !canPlace || busy,
+                onClick: () => placeBet(bet.type, undefined, bet.label)
+            }, bet.label, existing && React.createElement("small", null, existing.stake));
+        })),
+        React.createElement("h3", null, "Dozijn en kolom · 2:1"),
+        React.createElement("div", { className: "roulette-group-grid" }, rouletteGroupBets.map(bet => {
+            const existing = bets.find(item => item.type === bet.type);
+            return React.createElement("button", {
+                key: bet.type,
+                type: "button",
+                className: `roulette-group-bet${existing ? ' roulette-number--selected' : ''}`,
+                disabled: !canPlace || busy,
+                onClick: () => placeBet(bet.type, undefined, bet.label)
+            }, bet.label, existing && React.createElement("small", null, existing.stake));
+        })),
+        React.createElement("section", { className: "roulette-ticket" },
+            React.createElement("div", { className: "roulette-ticket-heading" },
+                React.createElement("strong", null, "Jouw inzetten"),
+                React.createElement("span", null, totalStake, " / ", balance, " pt")),
+            bets.length ? React.createElement("div", { className: "roulette-bet-list" }, bets.map(bet => React.createElement("div", { className: "roulette-bet", key: bet.id },
+                React.createElement("span", null, bet.label),
+                React.createElement("strong", null, bet.stake, " pt"),
+                React.createElement("button", { type: "button", "aria-label": `Verwijder inzet ${bet.label}`, onClick: () => setBets(current => current.filter(item => item.id !== bet.id)) }, React.createElement(X, { size: 15 }))))
+                ) : React.createElement("p", { className: "roulette-empty-bets" }, "Kies een inzet om te beginnen."),
+            error && React.createElement("p", { className: "roulette-error", role: "alert" }, error),
+            React.createElement("button", {
+                className: `button button--primary roulette-spin-button${busy ? ' roulette-spin-button--spinning' : ''}`,
+                type: "button",
+                disabled: busy || bets.length === 0 || totalStake > balance,
+                onClick: handleSpin
+            }, React.createElement(RotateCcw, { size: 18 }), busy ? " Roulette draait..." : " Draaien"),
+            shownResult && React.createElement("div", { className: "roulette-result", "aria-live": "polite" },
+                React.createElement("span", { className: `roulette-result-number roulette-number--${rouletteColor(Number(shownResult.winning_number))}` }, shownResult.winning_number),
+                React.createElement("div", null,
+                    React.createElement("strong", null, lastSpin ? (resultNet > 0 ? `Gewonnen: +${resultNet} punten` : resultNet < 0 ? `Verloren: ${Math.abs(resultNet)} punten` : "Inzet terug") : "Laatste groepsresultaat"),
+                    React.createElement("span", null, "Ingezet ", shownResult.stake, " · uitbetaald ", shownResult.payout, " punten")))),
+        React.createElement("section", { className: "roulette-history" },
+            React.createElement("h3", null, "Recente draaien"),
+            visibleSpins.length ? visibleSpins.map(spin => React.createElement("div", { className: "roulette-history-row", key: spin.id },
+                React.createElement("span", { className: `roulette-history-number roulette-number--${rouletteColor(Number(spin.winning_number))}` }, spin.winning_number),
+                React.createElement("strong", null, members.find(member => member.id === spin.user_id)?.display_name || 'Speler'),
+                React.createElement("span", null, Number(spin.payout) - Number(spin.stake) >= 0 ? `+${Number(spin.payout) - Number(spin.stake)}` : `${Number(spin.payout) - Number(spin.stake)}`, " pt"))) : React.createElement("p", null, "Er zijn nog geen inzetten geplaatst.")));
+}
 export default function App() {
     const [booting, setBooting] = useState(true), [user, setUser] = useState(null), [profile, setProfile] = useState(null);
     const [groups, setGroups] = useState([]), [groupId, setGroupId] = useState(null), [groupLoading, setGroupLoading] = useState(false);
     const [members, setMembers] = useState([]), [challenges, setChallenges] = useState([]), [participations, setParticipations] = useState([]);
     const [challengeFunds, setChallengeFunds] = useState([]), [challengeAwards, setChallengeAwards] = useState([]);
     const [shopItems, setShopItems] = useState([]), [shopPurchases, setShopPurchases] = useState([]);
+    const [dailyBonuses, setDailyBonuses] = useState([]), [rouletteSpins, setRouletteSpins] = useState([]);
     const [tab, setTab] = useState('home'), [modal, setModal] = useState(null), [busy, setBusy] = useState(false);
     const [toast, setToast] = useState(null), [filter, setFilter] = useState('alles'), [search, setSearch] = useState('');
     const [groupName, setGroupName] = useState(''), [joinCode, setJoinCode] = useState('');
@@ -235,7 +405,7 @@ export default function App() {
     const closeToast = useCallback(() => setToast(null), []);
     const closeModal = useCallback(() => { setModal(null); setPreviewUrl(null); }, []);
     const activeGroup = groups.find(g => g.id === groupId);
-    const board = useMemo(() => ranking(members, challenges, participations), [members, challenges, participations]);
+    const board = useMemo(() => ranking(members, challenges, participations, dailyBonuses), [members, challenges, participations, dailyBonuses]);
     const me = board.find(m => m.id === profile?.id);
     const myRank = board.findIndex(m => m.id === profile?.id) + 1;
     const myParticipations = participations.filter(p => p.user_id === profile?.id);
@@ -244,7 +414,7 @@ export default function App() {
     const completed = myParticipations.filter(p => p.status === 'approved').length;
     const active = myParticipations.filter(p => p.status === 'accepted' || p.status === 'rejected').length;
     const profileName = profile?.display_name || 'Speler';
-    const shopBalance = pointBalance(profile?.id, challenges, participations, shopPurchases, challengeFunds, challengeAwards);
+    const shopBalance = pointBalance(profile?.id, challenges, participations, shopPurchases, challengeFunds, challengeAwards, dailyBonuses, rouletteSpins);
     const challengeCost = Number(newChallenge.points) * Number(newChallenge.reward_slots);
     useEffect(() => { let live = true; currentSession().then(({ user: u }) => { if (live)
         setUser(u); }).catch(err => { if (live)
@@ -277,9 +447,11 @@ export default function App() {
         setChallengeAwards([]);
         setShopItems([]);
         setShopPurchases([]);
+        setDailyBonuses([]);
+        setRouletteSpins([]);
         return;
     } let cancelled = false; setGroupLoading(true); localStorage.setItem('puntjacht-active-group', groupId); loadGroup(groupId).then(data => { if (cancelled)
-        return; setMembers(data.members); setChallenges(data.challenges); setParticipations(data.participations); setChallengeFunds(data.challengeFunds); setChallengeAwards(data.challengeAwards); setShopItems(data.shopItems); setShopPurchases(data.shopPurchases); }).catch(err => { if (!cancelled)
+        return; setMembers(data.members); setChallenges(data.challenges); setParticipations(data.participations); setChallengeFunds(data.challengeFunds); setChallengeAwards(data.challengeAwards); setShopItems(data.shopItems); setShopPurchases(data.shopPurchases); setDailyBonuses(data.dailyBonuses); setRouletteSpins(data.rouletteSpins); }).catch(err => { if (!cancelled)
         showToast(err.message, true); }).finally(() => { if (!cancelled)
         setGroupLoading(false); }); return () => { cancelled = true; }; }, [groupId, reloadTick]);
     useEffect(() => { if (!groupId)
@@ -372,7 +544,24 @@ export default function App() {
         return;
     } const ok = await safeAction(() => submitProof(groupId, selectedParticipation, proofText, proofFile, profile.id), 'Bewijs ingediend! Je vrienden kunnen het nu beoordelen.'); if (ok)
         closeModal(); };
-    const handleReview = async (id, approved) => { await safeAction(() => reviewSubmission(id, approved), approved ? 'Goedgekeurd! De punten zijn uitbetaald.' : 'Bewijs afgekeurd. De betaalde plek is weer beschikbaar.'); };
+    const handleReview = async (id, approved) => { await safeAction(() => reviewSubmission(id, approved), approved ? 'Goedgekeurd! Je eventuele dagbonus van 25 punten is ook bijgeschreven.' : 'Bewijs afgekeurd. De betaalde plek is weer beschikbaar.'); };
+    const handleRouletteSpin = async (bets) => {
+        setBusy(true);
+        try {
+            const result = await spinRoulette(groupId, bets, profile.id);
+            setReloadTick(n => n + 1);
+            const net = Number(result.payout) - Number(result.stake);
+            showToast(net > 0 ? `Roulette gewonnen! Je saldo stijgt met ${net} punten.` : net < 0 ? `Deze draai kostte ${Math.abs(net)} punten.` : 'Je inzet is terugbetaald.');
+            return result;
+        }
+        catch (err) {
+            showToast(err.message || 'Roulette kon niet worden gespeeld.', true);
+            return null;
+        }
+        finally {
+            setBusy(false);
+        }
+    };
     const copyValue = async (value) => { try {
         await navigator.clipboard.writeText(value);
         showToast('Gekopieerd naar je klembord!');
@@ -507,13 +696,13 @@ export default function App() {
                                     React.createElement("span", { className: "eyebrow-sep" }, "/"),
                                     " ",
                                     tab === 'home' ? 'DASHBOARD' : navItems.find(x => x.key === tab)?.label.toUpperCase()),
-                                React.createElement("h1", null, tab === 'home' ? `Hey, ${profileName.split(' ')[0]} 👋` : tab === 'challenges' ? 'Alle challenges' : tab === 'shop' ? 'Beloningen van de groep' : tab === 'ranking' ? 'Het klassement' : 'Bewijs beoordelen'),
-                                React.createElement("p", null, tab === 'home' ? 'Tijd om punten te pakken. Wie staat er straks bovenaan?' : tab === 'challenges' ? 'Kies je volgende uitdaging. De punten liggen voor het oprapen.' : tab === 'shop' ? 'Ruil je verdiende punten in voor beloningen van je groepsgenoten.' : tab === 'ranking' ? 'Alle punten tellen. Wie pakt de winst?' : 'Help je groepsgenoten aan hun verdiende punten.')),
+                                React.createElement("h1", null, tab === 'home' ? `Hey, ${profileName.split(' ')[0]} 👋` : tab === 'challenges' ? 'Alle challenges' : tab === 'shop' ? 'Beloningen van de groep' : tab === 'roulette' ? 'Roulette' : tab === 'ranking' ? 'Het klassement' : 'Bewijs beoordelen'),
+                                React.createElement("p", null, tab === 'home' ? 'Tijd om punten te pakken. Wie staat er straks bovenaan?' : tab === 'challenges' ? 'Kies je volgende uitdaging. De punten liggen voor het oprapen.' : tab === 'shop' ? 'Ruil je verdiende punten in voor beloningen van je groepsgenoten.' : tab === 'roulette' ? 'Waag je punten aan een draai van het Europese roulettewiel.' : tab === 'ranking' ? 'Alle punten tellen. Wie pakt de winst?' : 'Help je groepsgenoten aan hun verdiende punten.')),
                             React.createElement("div", { className: "header-actions" },
                                 React.createElement("button", { className: "button button--outline button--header", onClick: () => setModal('invite') },
                                     React.createElement(Link2, { size: 17 }),
                                     " Uitnodigen"),
-                                tab !== 'shop' && React.createElement("button", { className: "button button--primary button--header", onClick: () => setModal('add') },
+                                tab !== 'shop' && tab !== 'roulette' && React.createElement("button", { className: "button button--primary button--header", onClick: () => setModal('add') },
                                     React.createElement(Plus, { size: 18 }),
                                     " Challenge maken"))),
                         groupLoading && challenges.length === 0 ? React.createElement(Loading, null) : React.createElement(React.Fragment, null,
@@ -708,6 +897,14 @@ export default function App() {
                                                     seller?.display_name || 'een groepslid'),
                                                 React.createElement(PointBadge, { points: purchase.price }));
                                         }))),
+                            tab === 'roulette' && React.createElement(RoulettePanel, {
+                                balance: shopBalance,
+                                spins: rouletteSpins,
+                                members,
+                                userId: profile?.id,
+                                busy,
+                                onSpin: handleRouletteSpin
+                            }),
                             tab === 'ranking' && React.createElement(React.Fragment, null,
                                 React.createElement("div", { className: "leaderboard-intro" },
                                     React.createElement("span", { className: "leaderboard-intro-icon" },
@@ -798,7 +995,7 @@ export default function App() {
                 React.createElement(I, { size: 21 }),
                 item.key === 'reviews' && reviewQueue.length > 0 && React.createElement("span", { className: "bottom-count" })),
             React.createElement("small", null, item.label)); })),
-        tab !== 'shop' && React.createElement("button", { className: "floating-add", onClick: () => setModal('add'), "aria-label": "Nieuwe challenge", disabled: !activeGroup },
+        tab !== 'shop' && tab !== 'roulette' && React.createElement("button", { className: "floating-add", onClick: () => setModal('add'), "aria-label": "Nieuwe challenge", disabled: !activeGroup },
             React.createElement(Plus, { size: 24 })),
         modal === 'group' && React.createElement(Modal, { title: "Maak een nieuwe groep", subtitle: "Een eigen plek voor jouw vriendengroep.", onClose: closeModal },
             React.createElement("form", { className: "modal-form", onSubmit: handleCreateGroup },

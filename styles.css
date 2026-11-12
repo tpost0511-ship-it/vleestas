@@ -62,3 +62,67 @@
   .mobile-group-button{padding:0 6px}
   .mobile-invite-button{min-width:62px;padding:0 7px;font-size:10px}
 }
+
+.roulette-panel{display:flex;flex-direction:column;gap:14px;max-width:900px}
+.roulette-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;background:#fff;border:1px solid #eeedf4;border-radius:16px;padding:18px 20px}
+.roulette-heading .eyebrow{color:#6e5bdd;font-size:10px;font-weight:900;letter-spacing:.13em}
+.roulette-heading h2{margin:4px 0 0;font-size:23px}
+.roulette-wallet{display:flex;flex-direction:column;align-items:flex-end;color:#858596;font-size:11px}
+.roulette-wallet strong{color:#5d4ac8;font-size:20px}
+.roulette-rules{margin:0;border-radius:12px;background:#f4f2ff;color:#60568d;padding:12px 14px;font-size:12px;line-height:1.55}
+.roulette-wheel-wrap{position:relative;display:grid;place-items:center;min-height:228px;padding:12px}
+.roulette-wheel{position:relative;width:204px;height:204px;border:7px solid #d5b35d;border-radius:50%;box-shadow:0 6px 16px #211b2c33,inset 0 0 0 2px #f4dda1;transition:transform 2.4s cubic-bezier(.12,.72,.08,1)}
+.roulette-wheel-label{position:absolute;top:50%;left:50%;color:#fff;font-size:7px;font-weight:900;line-height:1}
+.roulette-wheel-center{position:absolute;left:50%;top:50%;display:grid;place-items:center;width:70px;height:70px;border:5px solid #d5b35d;border-radius:50%;background:#12663f;color:#fff;font-size:12px;font-weight:900;text-align:center;transform:translate(-50%,-50%);box-shadow:0 2px 6px #211b2c55}
+.roulette-wheel-pointer{position:absolute;z-index:2;top:3px;left:50%;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:14px solid #ffe17b;transform:translateX(-50%);filter:drop-shadow(0 1px 2px #211b2c88)}
+.roulette-stake-label{display:flex;align-items:center;gap:8px;color:#444454;font-size:12px;font-weight:800}
+.roulette-stake-label span{margin-left:auto;color:#9292a1;font-size:10px}
+.roulette-stake-label input{width:96px;height:40px;border:1px solid #e6e5ed;border-radius:9px;padding:0 10px;font-size:16px}
+.roulette-panel h3{margin:2px 0 -7px;font-size:13px}
+.roulette-number-table{display:grid;grid-template-columns:1fr;gap:6px;border-radius:14px;background:#12663f;padding:10px}
+.roulette-number{position:relative;min-width:0;height:44px;border:1px solid #ffffff2b;border-radius:6px;color:#fff;font-size:14px;font-weight:850}
+.roulette-number--red{background:#bd394b}
+.roulette-number--black{background:#292a31}
+.roulette-number--green{background:#14844d}
+.roulette-number--selected{outline:2px solid #ffe17b;outline-offset:1px;z-index:1}
+.roulette-number:disabled,.roulette-outside-bet:disabled,.roulette-group-bet:disabled{cursor:not-allowed;opacity:.6}
+.roulette-number small,.roulette-outside-bet small,.roulette-group-bet small{position:absolute;top:2px;right:3px;min-width:17px;border-radius:9px;background:#ffdf72;color:#3d351c;padding:1px 4px;font-size:9px}
+.roulette-number-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.roulette-outside-grid,.roulette-group-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.roulette-outside-bet,.roulette-group-bet{position:relative;min-height:44px;border:1px solid #e8e6ef;border-radius:9px;background:#fff;color:#4a4958;font-size:11px;font-weight:800}
+.roulette-outside-bet.roulette-number--red{background:#bd394b;color:#fff}
+.roulette-outside-bet.roulette-number--black{background:#292a31;color:#fff}
+.roulette-group-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.roulette-ticket{border:1px solid #ecebf2;border-radius:14px;background:#fff;padding:14px}
+.roulette-ticket-heading{display:flex;justify-content:space-between;align-items:center;font-size:12px}
+.roulette-ticket-heading>span{color:#6553d4;font-weight:850}
+.roulette-bet-list{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+.roulette-bet{display:flex;align-items:center;gap:8px;border:1px solid #eceaf3;border-radius:999px;background:#f8f7fc;padding:5px 8px 5px 11px;font-size:11px}
+.roulette-bet strong{color:#5d4ac8}
+.roulette-bet button{display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:50%;background:#ebe9f4;color:#747286}
+.roulette-empty-bets{margin:12px 0 2px;color:#9292a1;font-size:12px}
+.roulette-error{margin:10px 0 0;color:#b34852;font-size:12px}
+.roulette-spin-button{align-self:stretch;justify-content:center;min-height:48px;margin-top:12px}
+.roulette-spin-button--spinning svg{animation:roulette-spin .7s linear infinite}
+@keyframes roulette-spin{to{transform:rotate(360deg)}}
+.roulette-result{display:flex;align-items:center;gap:12px;border-top:1px solid #eeeef3;margin-top:14px;padding-top:14px}
+.roulette-result-number,.roulette-history-number{display:grid;place-items:center;flex:none;width:46px;height:46px;border-radius:50%;color:#fff;font-size:18px;font-weight:900}
+.roulette-result>div{display:flex;flex-direction:column;gap:3px}
+.roulette-result>div strong{font-size:13px}
+.roulette-result>div span{color:#858596;font-size:11px}
+.roulette-history{display:flex;flex-direction:column;gap:8px}
+.roulette-history h3{margin:0 0 2px}
+.roulette-history-row{display:flex;align-items:center;gap:10px;border:1px solid #eeedf4;border-radius:10px;background:#fff;padding:8px 11px;font-size:11px}
+.roulette-history-number{width:30px;height:30px;font-size:12px}
+.roulette-history-row strong{flex:1}
+.roulette-history-row>span:last-child{font-weight:850;color:#5d4ac8}
+@media(max-width:700px){
+  .roulette-panel{gap:11px}
+  .roulette-heading{padding:14px}
+  .roulette-heading h2{font-size:20px}
+  .roulette-number-table{padding:7px}
+  .roulette-number{height:42px}
+  .roulette-outside-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
+  .roulette-group-grid{gap:5px}
+  .roulette-group-bet{padding:4px;font-size:10px}
+}
