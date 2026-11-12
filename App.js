@@ -1,12 +1,13 @@
 const React = window.React;
 const { useCallback, useEffect, useMemo, useState } = React;
-import { Trophy, Flame, Sparkles, Users, House, Plus, Check, Clock3, ArrowRight, CheckCircle2, X, Link2, Copy, LogOut, ChevronDown, Search, Medal, ShieldCheck, RefreshCcw, PartyPopper, Dumbbell, Mountain, LockKeyhole, UploadCloud, CheckCheck, Zap, Target, UserPlus, Crown, TrendingUp, AlertCircle, CircleCheckBig, Image, RotateCcw, ExternalLink } from './lib/icons.js';
-import { isDemo, currentSession, watchAuth, logIn, signUp, logOut, getProfile, listGroups, createGroup, joinGroup, loadGroup, addChallenge, acceptChallenge, submitProof, reviewSubmission, getProofUrl, subscribeToGroup } from './lib/data.js';
-import { CATEGORIES, categoryFor, ranking, challengeState, shortName, formatDate, inviteLink, validChallenge } from './lib/game.js';
+import { Trophy, Flame, Sparkles, Users, House, Plus, Check, Clock3, ArrowRight, CheckCircle2, X, Link2, Copy, LogOut, ChevronDown, Search, Medal, ShieldCheck, RefreshCcw, PartyPopper, Dumbbell, Mountain, LockKeyhole, UploadCloud, CheckCheck, Zap, Target, UserPlus, Crown, TrendingUp, AlertCircle, CircleCheckBig, Image, RotateCcw, ExternalLink, Gift } from './lib/icons.js';
+import { isDemo, currentSession, watchAuth, logIn, signUp, logOut, getProfile, listGroups, createGroup, joinGroup, loadGroup, addChallenge, cancelChallenge, withdrawChallenge, addShopItem, buyShopItem, acceptChallenge, submitProof, reviewSubmission, getProofUrl, subscribeToGroup } from './lib/data.js';
+import { CATEGORIES, categoryFor, ranking, challengeState, shortName, formatDate, inviteLink, validChallenge, validShopItem, pointBalance } from './lib/game.js';
 const IconFor = { avontuur: Mountain, sport: Dumbbell, sociaal: Users, grappig: PartyPopper, overig: Sparkles };
 const navItems = [
     { key: 'home', label: 'Overzicht', icon: House },
     { key: 'challenges', label: 'Challenges', icon: Target },
+    { key: 'shop', label: 'Shop', icon: Gift },
     { key: 'ranking', label: 'Klassement', icon: Trophy },
     { key: 'reviews', label: 'Beoordelen', icon: ShieldCheck }
 ];
@@ -160,10 +161,26 @@ function AuthScreen({ onToast }) {
                         React.createElement("button", { onClick: () => { setMode(mode === 'signup' ? 'login' : 'signup'); setMessage(''); } }, mode === 'signup' ? 'Log in' : 'Maak er een aan')),
                     React.createElement("p", { className: "auth-footnote" }, "Gratis te gebruiken voor jou en je vrienden.")))));
 }
-function ChallengeCard({ challenge, participation, onAction, creator }) {
+function ChallengeCard({ challenge, participation, onAction, onCancel, onWithdraw, creator, viewerId }) {
     const cat = categoryFor(challenge.category);
     const Icon = IconFor[cat.id];
     const status = participation?.status;
+    const bounty = challenge.bounty;
+    const isOwnChallenge = challenge.created_by === viewerId;
+    const isCancelled = Boolean(challenge.cancelled_at || bounty?.cancelled_at);
+    const noSlots = bounty && bounty.available_slots < 1;
+    const action = isOwnChallenge ? React.createElement("button", { className: "button button--sm button--soft", onClick: () => onCancel(challenge), disabled: isCancelled },
+        isCancelled ? 'Ingetrokken' : 'Intrekken') : status === 'approved' ? React.createElement("span", { className: "completed-mark" },
+        React.createElement(CheckCircle2, { size: 16 }),
+        " Klaar!") : status === 'pending' ? React.createElement("span", { className: "waiting-mark" },
+        React.createElement(Clock3, { size: 15 }),
+        " In beoordeling") : status === 'accepted' ? React.createElement("div", { className: "challenge-actions" },
+        React.createElement("button", { className: "button button--sm button--soft", onClick: () => onAction(challenge, participation) },
+            "Bewijs insturen",
+            React.createElement(ArrowRight, { size: 15 })),
+        bounty && React.createElement("button", { className: "challenge-cancel", onClick: () => onWithdraw(participation), title: "Stoppen en je betaalde plek vrijgeven" }, "Stoppen")) : isCancelled ? React.createElement("span", { className: "waiting-mark" }, "Ingetrokken") : status === 'rejected' && noSlots ? React.createElement("button", { className: "button button--sm button--soft", disabled: true }, "Geen betaalde plek") : noSlots ? React.createElement("span", { className: "waiting-mark" }, "Geen plekken vrij") : React.createElement("button", { className: `button button--sm ${status ? 'button--soft' : 'button--dark'}`, onClick: () => onAction(challenge, participation) },
+        status === 'rejected' ? 'Opnieuw insturen' : 'Accepteren',
+        React.createElement(ArrowRight, { size: 15 }));
     return React.createElement("article", { className: "challenge-card" },
         React.createElement("div", { className: "challenge-card-top" },
             React.createElement("div", { className: `challenge-illustration challenge-illustration--${cat.tone}` },
@@ -179,23 +196,42 @@ function ChallengeCard({ challenge, participation, onAction, creator }) {
                 creator || 'een groepsgenoot',
                 " \u00B7 ",
                 formatDate(challenge.created_at)),
-            status === 'approved' ? React.createElement("span", { className: "completed-mark" },
-                React.createElement(CheckCircle2, { size: 16 }),
-                " Klaar!") : status === 'pending' ? React.createElement("span", { className: "waiting-mark" },
-                React.createElement(Clock3, { size: 15 }),
-                " In beoordeling") : React.createElement("button", { className: `button button--sm ${status ? 'button--soft' : 'button--dark'}`, onClick: () => onAction(challenge, participation) },
-                status === 'accepted' ? 'Bewijs insturen' : status === 'rejected' ? 'Opnieuw insturen' : 'Accepteren',
-                React.createElement(ArrowRight, { size: 15 }))),
-        status === 'rejected' && React.createElement("div", { className: "challenge-rejected" }, "Je bewijs is afgekeurd. Je kunt opnieuw bewijs indienen."));
+            action),
+        status === 'rejected' && React.createElement("div", { className: "challenge-rejected" }, noSlots ? "Je bewijs is afgekeurd en er is geen betaalde plek meer." : "Je bewijs is afgekeurd. Je kunt opnieuw bewijs indienen."),
+        bounty && !isOwnChallenge && !isCancelled && React.createElement("small", { className: "challenge-slots" }, bounty.slots_paid, " van ", bounty.slots_total, " plekken uitbetaald"));
+}
+function ShopCard({ item, seller, own, canAfford, busy, onBuy }) {
+    return React.createElement("article", { className: "shop-card" },
+        React.createElement("div", { className: "shop-card-top" },
+            React.createElement("div", { className: "shop-gift-icon" },
+                React.createElement(Gift, { size: 23 })),
+            React.createElement(PointBadge, { points: item.price })),
+        React.createElement("h3", null, item.title),
+        React.createElement("p", { className: "shop-description" }, item.description || 'Een beloning van een groepsgenoot.'),
+        React.createElement("div", { className: "shop-card-meta" },
+            React.createElement("span", null,
+                React.createElement(Avatar, { name: seller || 'Speler', size: "sm" }),
+                "Door ", seller || 'een groepsgenoot'),
+            React.createElement("small", null, item.stock, " beschikbaar")),
+        React.createElement("button", {
+            className: `button ${own || !canAfford || item.stock < 1 ? 'button--soft' : 'button--dark'} shop-buy`,
+            disabled: busy || own || !canAfford || item.stock < 1,
+            onClick: onBuy
+        },
+            own ? 'Jouw beloning' : item.stock < 1 ? 'Uitverkocht' : !canAfford ? 'Niet genoeg punten' : 'Kopen',
+            !own && canAfford && item.stock > 0 && React.createElement(ArrowRight, { size: 16 })));
 }
 export default function App() {
     const [booting, setBooting] = useState(true), [user, setUser] = useState(null), [profile, setProfile] = useState(null);
     const [groups, setGroups] = useState([]), [groupId, setGroupId] = useState(null), [groupLoading, setGroupLoading] = useState(false);
     const [members, setMembers] = useState([]), [challenges, setChallenges] = useState([]), [participations, setParticipations] = useState([]);
+    const [challengeFunds, setChallengeFunds] = useState([]), [challengeAwards, setChallengeAwards] = useState([]);
+    const [shopItems, setShopItems] = useState([]), [shopPurchases, setShopPurchases] = useState([]);
     const [tab, setTab] = useState('home'), [modal, setModal] = useState(null), [busy, setBusy] = useState(false);
     const [toast, setToast] = useState(null), [filter, setFilter] = useState('alles'), [search, setSearch] = useState('');
     const [groupName, setGroupName] = useState(''), [joinCode, setJoinCode] = useState('');
-    const [newChallenge, setNewChallenge] = useState({ title: '', description: '', category: 'avontuur', points: 100 });
+    const [newChallenge, setNewChallenge] = useState({ title: '', description: '', category: 'avontuur', points: 100, reward_slots: 1 });
+    const [newShopItem, setNewShopItem] = useState({ title: '', description: '', price: 100, stock: 1 });
     const [selectedChallenge, setSelectedChallenge] = useState(null), [selectedParticipation, setSelectedParticipation] = useState(null);
     const [proofText, setProofText] = useState(''), [proofFile, setProofFile] = useState(null), [previewUrl, setPreviewUrl] = useState(null);
     const [reloadTick, setReloadTick] = useState(0), [groupsMenu, setGroupsMenu] = useState(false);
@@ -212,6 +248,8 @@ export default function App() {
     const completed = myParticipations.filter(p => p.status === 'approved').length;
     const active = myParticipations.filter(p => p.status === 'accepted' || p.status === 'rejected').length;
     const profileName = profile?.display_name || 'Speler';
+    const shopBalance = pointBalance(profile?.id, challenges, participations, shopPurchases, challengeFunds, challengeAwards);
+    const challengeCost = Number(newChallenge.points) * Number(newChallenge.reward_slots);
     useEffect(() => { let live = true; currentSession().then(({ user: u }) => { if (live)
         setUser(u); }).catch(err => { if (live)
         setToast({ text: err.message, error: true }); }).finally(() => { if (live)
@@ -239,9 +277,13 @@ export default function App() {
         setMembers([]);
         setChallenges([]);
         setParticipations([]);
+        setChallengeFunds([]);
+        setChallengeAwards([]);
+        setShopItems([]);
+        setShopPurchases([]);
         return;
     } let cancelled = false; setGroupLoading(true); localStorage.setItem('puntjacht-active-group', groupId); loadGroup(groupId).then(data => { if (cancelled)
-        return; setMembers(data.members); setChallenges(data.challenges); setParticipations(data.participations); }).catch(err => { if (!cancelled)
+        return; setMembers(data.members); setChallenges(data.challenges); setParticipations(data.participations); setChallengeFunds(data.challengeFunds); setChallengeAwards(data.challengeAwards); setShopItems(data.shopItems); setShopPurchases(data.shopPurchases); }).catch(err => { if (!cancelled)
         showToast(err.message, true); }).finally(() => { if (!cancelled)
         setGroupLoading(false); }); return () => { cancelled = true; }; }, [groupId, reloadTick]);
     useEffect(() => { if (!groupId)
@@ -277,12 +319,39 @@ export default function App() {
     const handleAddChallenge = async (e) => { e.preventDefault(); const error = validChallenge(newChallenge); if (error) {
         showToast(error, true);
         return;
-    } const ok = await safeAction(() => addChallenge(groupId, newChallenge, profile.id), 'Challenge toegevoegd!'); if (ok) {
-        setNewChallenge({ title: '', description: '', category: 'avontuur', points: 100 });
+    } const totalCost = Number(newChallenge.points) * Number(newChallenge.reward_slots); if (totalCost > shopBalance) {
+        showToast('Je hebt niet genoeg punten om alle betaalde plekken te financieren.', true);
+        return;
+    } const ok = await safeAction(() => addChallenge(groupId, newChallenge, profile.id), 'Challenge geplaatst; de betaalde plekken zijn gereserveerd.'); if (ok) {
+        setNewChallenge({ title: '', description: '', category: 'avontuur', points: 100, reward_slots: 1 });
         setTab('challenges');
         closeModal();
     } };
+    const handleCancelChallenge = async (challenge) => {
+        const funded = Boolean(challenge.bounty);
+        if (!window.confirm(funded ? 'Challenge intrekken? Ongebruikte betaalde plekken worden terugbetaald.' : 'Challenge intrekken?')) return;
+        await safeAction(() => cancelChallenge(challenge.id, profile.id), funded ? 'Challenge ingetrokken; ongebruikte punten zijn terugbetaald.' : 'Challenge ingetrokken.');
+    };
+    const handleWithdrawChallenge = async (participation) => {
+        if (!window.confirm('Stoppen met deze challenge? Je betaalde plek komt dan weer vrij.')) return;
+        await safeAction(() => withdrawChallenge(participation.id, profile.id), 'Je deelname is gestopt en de betaalde plek is vrijgegeven.');
+    };
+    const handleAddShopItem = async (e) => { e.preventDefault(); const error = validShopItem(newShopItem); if (error) {
+        showToast(error, true);
+        return;
+    } const ok = await safeAction(() => addShopItem(groupId, newShopItem, profile.id), 'Beloning toegevoegd aan de shop!'); if (ok) {
+        setNewShopItem({ title: '', description: '', price: 100, stock: 1 });
+        setTab('shop');
+        closeModal();
+    } };
+    const handleBuyShopItem = async (item) => {
+        await safeAction(() => buyShopItem(item.id, profile.id), `${item.title} gekocht! De punten zijn overgemaakt aan ${members.find(member => member.id === item.created_by)?.display_name || 'de aanbieder'}.`);
+    };
     const handleAction = async (challenge, participation) => {
+        if (challenge.created_by === profile?.id) {
+            showToast('Je kunt je eigen challenge niet uitvoeren.', true);
+            return;
+        }
         if (participation?.status === 'accepted' || participation?.status === 'rejected') {
             setSelectedChallenge(challenge);
             setSelectedParticipation(participation.id);
@@ -307,7 +376,7 @@ export default function App() {
         return;
     } const ok = await safeAction(() => submitProof(groupId, selectedParticipation, proofText, proofFile, profile.id), 'Bewijs ingediend! Je vrienden kunnen het nu beoordelen.'); if (ok)
         closeModal(); };
-    const handleReview = async (id, approved) => { await safeAction(() => reviewSubmission(id, approved), approved ? 'Goedgekeurd! De punten zijn toegevoegd.' : 'Bewijs afgekeurd. De deelnemer kan opnieuw insturen.'); };
+    const handleReview = async (id, approved) => { await safeAction(() => reviewSubmission(id, approved), approved ? 'Goedgekeurd! De punten zijn uitbetaald.' : 'Bewijs afgekeurd. De betaalde plek is weer beschikbaar.'); };
     const copyValue = async (value) => { try {
         await navigator.clipboard.writeText(value);
         showToast('Gekopieerd naar je klembord!');
@@ -331,7 +400,8 @@ export default function App() {
     } };
     const filtered = challenges.filter(c => {
         const p = challengeState(c.id, profile?.id, participations);
-        const matches = filter === 'alles' || (filter === 'beschikbaar' && !p) || (filter === 'bezig' && ['accepted', 'rejected'].includes(p?.status)) || (filter === 'pending' && p?.status === 'pending') || (filter === 'voltooid' && p?.status === 'approved');
+        const available = !p && c.created_by !== profile?.id && !c.cancelled_at && (!c.bounty || (!c.bounty.cancelled_at && c.bounty.available_slots > 0));
+        const matches = filter === 'alles' || (filter === 'beschikbaar' && available) || (filter === 'bezig' && ['accepted', 'rejected'].includes(p?.status)) || (filter === 'pending' && p?.status === 'pending') || (filter === 'voltooid' && p?.status === 'approved');
         return matches && `${c.title} ${c.description} ${categoryFor(c.category).label}`.toLowerCase().includes(search.toLowerCase());
     });
     const topThree = board.slice(0, 3);
@@ -438,13 +508,13 @@ export default function App() {
                                     React.createElement("span", { className: "eyebrow-sep" }, "/"),
                                     " ",
                                     tab === 'home' ? 'DASHBOARD' : navItems.find(x => x.key === tab)?.label.toUpperCase()),
-                                React.createElement("h1", null, tab === 'home' ? `Hey, ${profileName.split(' ')[0]} 👋` : tab === 'challenges' ? 'Alle challenges' : tab === 'ranking' ? 'Het klassement' : 'Bewijs beoordelen'),
-                                React.createElement("p", null, tab === 'home' ? 'Tijd om punten te pakken. Wie staat er straks bovenaan?' : tab === 'challenges' ? 'Kies je volgende uitdaging. De punten liggen voor het oprapen.' : tab === 'ranking' ? 'Alle punten tellen. Wie pakt de winst?' : 'Help je groepsgenoten aan hun verdiende punten.')),
+                                React.createElement("h1", null, tab === 'home' ? `Hey, ${profileName.split(' ')[0]} 👋` : tab === 'challenges' ? 'Alle challenges' : tab === 'shop' ? 'Beloningen van de groep' : tab === 'ranking' ? 'Het klassement' : 'Bewijs beoordelen'),
+                                React.createElement("p", null, tab === 'home' ? 'Tijd om punten te pakken. Wie staat er straks bovenaan?' : tab === 'challenges' ? 'Kies je volgende uitdaging. De punten liggen voor het oprapen.' : tab === 'shop' ? 'Ruil je verdiende punten in voor beloningen van je groepsgenoten.' : tab === 'ranking' ? 'Alle punten tellen. Wie pakt de winst?' : 'Help je groepsgenoten aan hun verdiende punten.')),
                             React.createElement("div", { className: "header-actions" },
                                 React.createElement("button", { className: "button button--outline button--header", onClick: () => setModal('invite') },
                                     React.createElement(Link2, { size: 17 }),
                                     " Uitnodigen"),
-                                React.createElement("button", { className: "button button--primary button--header", onClick: () => setModal('add') },
+                                tab !== 'shop' && React.createElement("button", { className: "button button--primary button--header", onClick: () => setModal('add') },
                                     React.createElement(Plus, { size: 18 }),
                                     " Challenge maken"))),
                         groupLoading && challenges.length === 0 ? React.createElement(Loading, null) : React.createElement(React.Fragment, null,
@@ -477,14 +547,14 @@ export default function App() {
                                     React.createElement("div", { className: "stat" },
                                         React.createElement("div", { className: "stat-icon stat-icon--purple" },
                                             React.createElement(Zap, { size: 20 })),
-                                        React.createElement("span", null, "Totaal punten"),
+                                        React.createElement("span", null, "Puntenscore"),
                                         React.createElement("strong", null,
                                             me?.points || 0,
                                             " ",
                                             React.createElement("small", null, "pt")),
                                         React.createElement("div", { className: "stat-note" },
                                             React.createElement(TrendingUp, { size: 14 }),
-                                            " Lekker bezig!")),
+                                            "Verdiend met challenges")),
                                     React.createElement("div", { className: "stat" },
                                         React.createElement("div", { className: "stat-icon stat-icon--orange" },
                                             React.createElement(Target, { size: 21 })),
@@ -527,7 +597,7 @@ export default function App() {
                                                 "Bekijk alles ",
                                                 React.createElement(ArrowRight, { size: 16 }))),
                                         React.createElement("div", { className: "quick-challenges" },
-                                            challenges.filter(c => challengeState(c.id, profile?.id, participations)?.status !== 'approved').slice(0, 4).map(c => { const cat = categoryFor(c.category), I = IconFor[cat.id], p = challengeState(c.id, profile?.id, participations); return React.createElement("div", { className: "quick-challenge", key: c.id },
+                                                    challenges.filter(c => challengeState(c.id, profile?.id, participations)?.status !== 'approved' && c.created_by !== profile?.id && !c.cancelled_at && !(c.bounty && (c.bounty.cancelled_at || c.bounty.available_slots < 1))).slice(0, 4).map(c => { const cat = categoryFor(c.category), I = IconFor[cat.id], p = challengeState(c.id, profile?.id, participations); return React.createElement("div", { className: "quick-challenge", key: c.id },
                                                 React.createElement("div", { className: `quick-icon quick-icon--${cat.tone}` },
                                                     React.createElement(I, { size: 20 })),
                                                 React.createElement("div", { className: "quick-details" },
@@ -596,9 +666,49 @@ export default function App() {
                                     React.createElement("button", { onClick: () => setReloadTick(n => n + 1), className: "muted-action" },
                                         React.createElement(RefreshCcw, { size: 15 }),
                                         " Verversen")),
-                                filtered.length ? React.createElement("div", { className: "challenge-grid" }, filtered.map(c => React.createElement(ChallengeCard, { key: c.id, challenge: c, participation: challengeState(c.id, profile?.id, participations), onAction: handleAction, creator: members.find(m => m.id === c.created_by)?.display_name }))) : React.createElement(NoResults, { icon: Search, title: "Geen challenges gevonden", text: "Probeer een ander filter of bedenk zelf een nieuwe uitdaging.", action: React.createElement("button", { className: "button button--primary", onClick: () => setModal('add') },
+                                filtered.length ? React.createElement("div", { className: "challenge-grid" }, filtered.map(c => React.createElement(ChallengeCard, { key: c.id, challenge: c, participation: challengeState(c.id, profile?.id, participations), onAction: handleAction, onCancel: handleCancelChallenge, onWithdraw: handleWithdrawChallenge, creator: members.find(m => m.id === c.created_by)?.display_name, viewerId: profile?.id }))) : React.createElement(NoResults, { icon: Search, title: "Geen challenges gevonden", text: "Probeer een ander filter of bedenk zelf een nieuwe uitdaging.", action: React.createElement("button", { className: "button button--primary", onClick: () => setModal('add') },
                                         React.createElement(Plus, { size: 17 }),
                                         " Nieuwe challenge") })),
+                                tab === 'shop' && React.createElement(React.Fragment, null,
+                                    React.createElement("section", { className: "shop-balance" },
+                                        React.createElement("div", { className: "shop-balance-icon" },
+                                            React.createElement(Zap, { size: 22, fill: "currentColor" })),
+                                        React.createElement("div", null,
+                                            React.createElement("span", null, "Jouw shoptegoed"),
+                                            React.createElement("strong", null, shopBalance, " punten")),
+                                        React.createElement("p", null, "Bij een aankoop gaan de punten naar de aanbieder.")),
+                                    React.createElement("div", { className: "shop-heading" },
+                                        React.createElement("div", null,
+                                            React.createElement("h2", null, "Aangeboden door jullie"),
+                                            React.createElement("p", null, `${shopItems.length} beloningen van groepsleden`)),
+                                        React.createElement("button", { className: "button button--primary", onClick: () => setModal('shop-add') },
+                                            React.createElement(Plus, { size: 17 }),
+                                            " Beloning aanbieden")),
+                                    shopItems.length ? React.createElement("div", { className: "shop-grid" }, shopItems.map(item => React.createElement(ShopCard, {
+                                        key: item.id,
+                                        item,
+                                        seller: members.find(member => member.id === item.created_by)?.display_name,
+                                        own: item.created_by === profile?.id,
+                                        canAfford: shopBalance >= Number(item.price),
+                                        busy,
+                                        onBuy: () => handleBuyShopItem(item)
+                                    }))) : React.createElement(NoResults, { icon: Gift, title: "De shop is nog leeg", text: "Bied als eerste een leuke beloning aan voor je groepsgenoten."}),
+                                    shopPurchases.length > 0 && React.createElement("section", { className: "shop-sales" },
+                                        React.createElement("h2", null, "Recente aankopen"),
+                                        shopPurchases.slice(0, 6).map(purchase => {
+                                            const buyer = members.find(member => member.id === purchase.buyer_id);
+                                            const seller = members.find(member => member.id === purchase.seller_id);
+                                            const item = shopItems.find(listing => listing.id === purchase.item_id);
+                                            return React.createElement("div", { className: "shop-sale", key: purchase.id },
+                                                React.createElement(Gift, { size: 17 }),
+                                                React.createElement("span", null,
+                                                    buyer?.display_name || 'Een groepslid',
+                                                    " kocht ",
+                                                    item?.title || 'een beloning',
+                                                    " van ",
+                                                    seller?.display_name || 'een groepslid'),
+                                                React.createElement(PointBadge, { points: purchase.price }));
+                                        }))),
                             tab === 'ranking' && React.createElement(React.Fragment, null,
                                 React.createElement("div", { className: "leaderboard-intro" },
                                     React.createElement("span", { className: "leaderboard-intro-icon" },
@@ -689,7 +799,7 @@ export default function App() {
                 React.createElement(I, { size: 21 }),
                 item.key === 'reviews' && reviewQueue.length > 0 && React.createElement("span", { className: "bottom-count" })),
             React.createElement("small", null, item.label)); })),
-        React.createElement("button", { className: "floating-add", onClick: () => setModal('add'), "aria-label": "Nieuwe challenge", disabled: !activeGroup },
+        tab !== 'shop' && React.createElement("button", { className: "floating-add", onClick: () => setModal('add'), "aria-label": "Nieuwe challenge", disabled: !activeGroup },
             React.createElement(Plus, { size: 24 })),
         modal === 'group' && React.createElement(Modal, { title: "Maak een nieuwe groep", subtitle: "Een eigen plek voor jouw vriendengroep.", onClose: closeModal },
             React.createElement("form", { className: "modal-form", onSubmit: handleCreateGroup },
@@ -769,8 +879,42 @@ export default function App() {
                         React.createElement("input", { type: "number", min: 1, max: 1000, step: 1, value: newChallenge.points, onChange: e => setNewChallenge(v => ({ ...v, points: e.target.value })), required: true }),
                         React.createElement("span", null, "punten")),
                     React.createElement("div", { className: "quick-points" }, [50, 100, 250, 500].map(n => React.createElement("button", { type: "button", key: n, className: Number(newChallenge.points) === n ? 'selected' : '', onClick: () => setNewChallenge(v => ({ ...v, points: n })) }, n)))),
+                React.createElement("label", null,
+                    "Aantal betaalde plekken",
+                    React.createElement("input", { type: "number", min: 1, max: 100, step: 1, value: newChallenge.reward_slots, onChange: e => setNewChallenge(v => ({ ...v, reward_slots: e.target.value })), required: true })),
+                React.createElement("div", { className: `challenge-cost-info ${challengeCost > shopBalance ? 'challenge-cost-info--error' : ''}` },
+                    React.createElement(Zap, { size: 17, fill: "currentColor" }),
+                    React.createElement("span", null,
+                        "Je reserveert ",
+                        challengeCost,
+                        " punten (",
+                        newChallenge.points,
+                        " per plek × ",
+                        newChallenge.reward_slots,
+                        "). Je hebt ",
+                        shopBalance,
+                        " punten beschikbaar.")),
+                React.createElement("button", { className: "button button--primary button--full", type: "submit", disabled: busy || challengeCost > shopBalance },
+                    busy ? 'Challenge maken...' : challengeCost > shopBalance ? 'Niet genoeg punten' : 'Challenge plaatsen',
+                    React.createElement(Plus, { size: 18 })))),
+        modal === 'shop-add' && activeGroup && React.createElement(Modal, { title: "Beloning aanbieden", subtitle: "Groepsleden betalen met hun punten; die gaan naar jou.", onClose: closeModal },
+            React.createElement("form", { className: "modal-form", onSubmit: handleAddShopItem },
+                React.createElement("label", null,
+                    "Naam van de beloning",
+                    React.createElement("input", { autoFocus: true, placeholder: "Bijv. Koffie op mij", maxLength: 80, value: newShopItem.title, onChange: e => setNewShopItem(v => ({ ...v, title: e.target.value })), required: true })),
+                React.createElement("label", null,
+                    "Beschrijving ",
+                    React.createElement("span", { className: "optional" }, "(optioneel)"),
+                    React.createElement("textarea", { rows: 3, placeholder: "Wat krijgt de koper?", maxLength: 600, value: newShopItem.description, onChange: e => setNewShopItem(v => ({ ...v, description: e.target.value })) })),
+                React.createElement("label", null, "Prijs in punten"),
+                React.createElement("input", { type: "number", min: 1, max: 100000, step: 1, value: newShopItem.price, onChange: e => setNewShopItem(v => ({ ...v, price: e.target.value })), required: true }),
+                React.createElement("label", null, "Voorraad"),
+                React.createElement("input", { type: "number", min: 1, max: 10000, step: 1, value: newShopItem.stock, onChange: e => setNewShopItem(v => ({ ...v, stock: e.target.value })), required: true }),
+                React.createElement("div", { className: "form-info" },
+                    React.createElement(Gift, { size: 17 }),
+                    "Elke aankoop vermindert de voorraad en maakt de betaalde punten beschikbaar voor jou."),
                 React.createElement("button", { className: "button button--primary button--full", type: "submit", disabled: busy },
-                    busy ? 'Challenge maken...' : 'Challenge toevoegen',
+                    busy ? 'Beloning toevoegen...' : 'Aanbieden in de shop',
                     React.createElement(Plus, { size: 18 })))),
         modal === 'proof' && selectedChallenge && React.createElement(Modal, { title: "Challenge bewijzen", subtitle: "De punten zijn bijna binnen!", onClose: closeModal },
             React.createElement("div", { className: "proof-challenge-header" },
