@@ -1,8 +1,8 @@
 const React = window.React;
 const { useCallback, useEffect, useMemo, useRef, useState } = React;
-import { Trophy, Flame, Sparkles, Users, House, Plus, Check, Clock3, ArrowRight, CheckCircle2, X, Link2, Copy, LogOut, Search, Medal, ShieldCheck, RefreshCcw, PartyPopper, Dumbbell, Mountain, LockKeyhole, UploadCloud, CheckCheck, Zap, Target, UserPlus, Crown, TrendingUp, AlertCircle, CircleCheckBig, Image, RotateCcw, ExternalLink, Gift } from './lib/icons.js';
-import { isDemo, currentSession, watchAuth, logIn, signUp, logOut, getProfile, listGroups, createGroup, joinGroup, loadGroup, addChallenge, cancelChallenge, withdrawChallenge, addShopItem, buyShopItem, acceptChallenge, submitProof, reviewSubmission, spinRoulette, getProofUrl, subscribeToGroup } from './lib/data.js';
-import { CATEGORIES, categoryFor, ranking, challengeState, shortName, formatDate, inviteLink, validChallenge, validShopItem, pointBalance, rouletteColor } from './lib/game.js';
+import { Trophy, Flame, Sparkles, Users, House, Plus, Check, Clock3, ArrowRight, CheckCircle2, X, Link2, Copy, LogOut, Search, Medal, ShieldCheck, RefreshCcw, PartyPopper, Dumbbell, Mountain, LockKeyhole, UploadCloud, CheckCheck, Zap, Target, UserPlus, Crown, TrendingUp, AlertCircle, CircleCheckBig, Image, RotateCcw, ExternalLink, Gift, Pencil } from './lib/icons.js';
+import { isDemo, currentSession, watchAuth, logIn, signUp, logOut, getProfile, updateProfile, listGroups, createGroup, joinGroup, loadGroup, addChallenge, cancelChallenge, withdrawChallenge, addShopItem, buyShopItem, acceptChallenge, submitProof, reviewSubmission, spinRoulette, getProofUrl, subscribeToGroup } from './lib/data.js';
+import { CATEGORIES, DAILY_CHALLENGE_BONUS, amsterdamDateKey, categoryFor, ranking, challengeState, shortName, formatDate, inviteLink, validChallenge, validShopItem, pointBalance, rouletteColor } from './lib/game.js';
 const IconFor = { avontuur: Mountain, sport: Dumbbell, sociaal: Users, grappig: PartyPopper, overig: Sparkles };
 const navItems = [
     { key: 'home', label: 'Overzicht', icon: House },
@@ -10,9 +10,94 @@ const navItems = [
     { key: 'shop', label: 'Shop', icon: Gift },
     { key: 'roulette', label: 'Roulette', icon: RotateCcw },
     { key: 'ranking', label: 'Klassement', icon: Trophy },
-    { key: 'reviews', label: 'Beoordelen', icon: ShieldCheck }
+    { key: 'reviews', label: 'Beoordelen', icon: ShieldCheck },
+    { key: 'settings', label: 'Instellingen', icon: Pencil }
 ];
 const statusLabels = { accepted: 'Bezig', pending: 'In beoordeling', approved: 'Voltooid', rejected: 'Afgekeurd' };
+const PREFERENCES_KEY = 'puntjacht-preferences-v1';
+
+function readPreferences() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(PREFERENCES_KEY) || '{}');
+        return { sound: saved.sound !== false, confetti: saved.confetti !== false };
+    }
+    catch {
+        return { sound: true, confetti: true };
+    }
+}
+function createCelebrationAudioContext() {
+    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextConstructor) return null;
+    try {
+        const context = new AudioContextConstructor();
+        context.resume().catch(err => console.warn('Feestmuziek kon niet worden gestart.', err));
+        return context;
+    }
+    catch (err) {
+        console.warn('Feestmuziek is niet beschikbaar.', err);
+        return null;
+    }
+}
+function playCelebrationTune(context = null) {
+    const ownsContext = !context;
+    const audioContext = context || createCelebrationAudioContext();
+    if (!audioContext || audioContext.state === 'closed') return;
+    try {
+        const notes = [523.25, 659.25, 783.99, 1046.5];
+        notes.forEach((frequency, index) => {
+            const start = audioContext.currentTime + index * 0.13;
+            const oscillator = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            oscillator.type = 'triangle';
+            oscillator.frequency.setValueAtTime(frequency, start);
+            gain.gain.setValueAtTime(0.001, start);
+            gain.gain.linearRampToValueAtTime(0.12, start + 0.025);
+            gain.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
+            oscillator.connect(gain);
+            gain.connect(audioContext.destination);
+            oscillator.onended = () => {
+                oscillator.disconnect();
+                gain.disconnect();
+            };
+            oscillator.start(start);
+            oscillator.stop(start + 0.21);
+        });
+        if (ownsContext) {
+            window.setTimeout(() => {
+                if (audioContext.state !== 'closed') audioContext.close().catch(err => console.warn('Feestmuziek kon niet worden afgesloten.', err));
+            }, 1200);
+        }
+    }
+    catch (err) {
+        console.warn('Feestmuziek is niet beschikbaar.', err);
+    }
+}
+function Celebration({ text }) {
+    return React.createElement("div", { className: "celebration-overlay", role: "status", "aria-live": "polite" },
+        React.createElement("div", { className: "celebration-message" },
+            React.createElement(PartyPopper, { size: 25 }),
+            React.createElement("strong", null, text)),
+        Array.from({ length: 48 }, (_, index) => React.createElement("span", {
+            className: "celebration-confetti",
+            key: index,
+            "aria-hidden": "true",
+            style: {
+                left: `${(index * 37) % 100}%`,
+                '--confetti-delay': `${(index % 12) * 55}ms`,
+                '--confetti-hue': `${(index * 47) % 360}deg`
+            }
+        })));
+}
+function DailyBonusBanner({ earned }) {
+    return React.createElement("section", { className: `daily-bonus-banner${earned ? ' daily-bonus-banner--earned' : ''}` },
+        React.createElement("div", { className: "daily-bonus-icon" }, React.createElement(Zap, { size: 21, fill: "currentColor" })),
+        React.createElement("div", null,
+            React.createElement("strong", null, earned ? "Dagbonus al verdiend!" : "Pak je dagelijkse bonus"),
+            React.createElement("p", null, earned
+                ? "Je hebt vandaag je eerste challengebonus al ontvangen."
+                : `Rond vandaag je eerste challenge af. Na goedkeuring krijg je ${DAILY_CHALLENGE_BONUS} bonuspunten.`)),
+        React.createElement("span", null, `+${DAILY_CHALLENGE_BONUS} pt`));
+}
 function Avatar({ name = '?', size = 'md', index = 0 }) {
     return React.createElement("div", { className: `avatar avatar--${size} avatar--color-${index % 6}`, title: name }, shortName(name));
 }
@@ -235,7 +320,7 @@ const rouletteGroupBets = [
     { type: 'column3', label: 'Kolom 3' }
 ];
 const europeanRouletteWheel = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
-function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
+function RoulettePanel({ balance, spins, members, userId, busy, soundEnabled, onSpin, onCelebrate }) {
     const [amount, setAmount] = useState(Math.max(1, Math.min(10, balance)));
     const [bets, setBets] = useState([]);
     const [lastSpin, setLastSpin] = useState(null);
@@ -310,7 +395,7 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
     const handleSpin = async () => {
         if (spinning || busy || bets.length === 0) return;
         setSpinning(true);
-        const audioContext = getAudioContext();
+        const audioContext = soundEnabled ? getAudioContext() : null;
         const result = await onSpin(bets.map(({ type, value, stake }) => ({ type, value, stake })));
         if (result) {
             setLastSpin(result);
@@ -322,6 +407,8 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
             await new Promise(resolve => window.setTimeout(resolve, duration));
             setSpinning(false);
             playBallDropSound(audioContext);
+            const net = Number(result.payout) - Number(result.stake);
+            if (net > 0) onCelebrate(`Gewonnen! +${net} punten`, audioContext);
         }
         else {
             setSpinning(false);
@@ -335,6 +422,20 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
     }).join(', ')})`;
     const wheelIndex = lastSpin ? europeanRouletteWheel.indexOf(Number(lastSpin.winning_number)) : 0;
     const wheelRotation = lastSpin ? spinCount * 1800 - wheelIndex * wheelSegment : 0;
+    const wheel = React.createElement("div", { className: `roulette-wheel-wrap${spinning ? ' roulette-wheel-wrap--spinning' : ''}`, "aria-label": lastSpin ? `Winnende nummer ${lastSpin.winning_number}` : 'Europees roulettewiel' },
+        React.createElement("span", { className: "roulette-wheel-pointer" }),
+        React.createElement("div", { className: "roulette-wheel", style: { background: wheelBackground, transform: `rotate(${wheelRotation}deg)` } },
+            europeanRouletteWheel.map((number, index) => {
+                const angle = index * wheelSegment;
+                return React.createElement("span", {
+                    className: "roulette-wheel-label",
+                    key: number,
+                    style: { transform: `translate(-50%,-50%) rotate(${angle}deg) translateY(var(--roulette-label-radius,-83px)) rotate(${-angle}deg)` }
+                }, number);
+            })),
+        React.createElement("div", { className: "roulette-ball-track", style: { transform: `rotate(${ballRotation}deg)` } },
+            React.createElement("span", { className: "roulette-ball" })),
+        React.createElement("div", { className: "roulette-wheel-center" }, lastSpin ? lastSpin.winning_number : "VleesTas"));
     const numberButton = number => {
         const color = rouletteColor(number);
         const bet = bets.find(item => item.type === 'number' && item.value === number);
@@ -352,7 +453,8 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
     const visibleSpins = spins.slice(0, 6);
     const shownResult = lastSpin || spins.find(spin => spin.user_id === userId);
     const resultNet = shownResult ? Number(shownResult.payout) - Number(shownResult.stake) : 0;
-    return React.createElement("section", { className: "roulette-panel" },
+    return React.createElement(React.Fragment, null,
+        React.createElement("section", { className: "roulette-panel" },
         React.createElement("div", { className: "roulette-heading" },
             React.createElement("div", null,
                 React.createElement("span", { className: "eyebrow" }, "EUROPEES ROULETTE"),
@@ -361,20 +463,7 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
                 React.createElement("span", null, "Saldo"),
                 React.createElement("strong", null, balance, " pt"))),
         React.createElement("p", { className: "roulette-rules" }, "0–36 · standaard uitbetalingen · je inzet wordt alleen in punten afgerekend. Iedereen start per groep met 100 punten. Nul wint nooit op rood/zwart, even/oneven of 1–18/19–36."),
-            React.createElement("div", { className: `roulette-wheel-wrap${spinning ? ' roulette-wheel-wrap--spinning' : ''}`, "aria-label": lastSpin ? `Winnende nummer ${lastSpin.winning_number}` : 'Europees roulettewiel' },
-                React.createElement("span", { className: "roulette-wheel-pointer" }),
-                React.createElement("div", { className: "roulette-wheel", style: { background: wheelBackground, transform: `rotate(${wheelRotation}deg)` } },
-                    europeanRouletteWheel.map((number, index) => {
-                        const angle = index * wheelSegment;
-                        return React.createElement("span", {
-                            className: "roulette-wheel-label",
-                            key: number,
-                            style: { transform: `translate(-50%,-50%) rotate(${angle}deg) translateY(var(--roulette-label-radius,-83px)) rotate(${-angle}deg)` }
-                        }, number);
-                    })),
-                React.createElement("div", { className: "roulette-ball-track", style: { transform: `rotate(${ballRotation}deg)` } },
-                    React.createElement("span", { className: "roulette-ball" })),
-            React.createElement("div", { className: "roulette-wheel-center" }, lastSpin ? lastSpin.winning_number : "VleesTas")),
+            !spinning && wheel,
         React.createElement("label", { className: "roulette-stake-label" },
             "Inzet per vakje",
             React.createElement("span", null, "Punten"),
@@ -439,7 +528,14 @@ function RoulettePanel({ balance, spins, members, userId, busy, onSpin }) {
             visibleSpins.length ? visibleSpins.map(spin => React.createElement("div", { className: "roulette-history-row", key: spin.id },
                 React.createElement("span", { className: `roulette-history-number roulette-number--${rouletteColor(Number(spin.winning_number))}` }, spin.winning_number),
                 React.createElement("strong", null, members.find(member => member.id === spin.user_id)?.display_name || 'Speler'),
-                React.createElement("span", null, Number(spin.payout) - Number(spin.stake) >= 0 ? `+${Number(spin.payout) - Number(spin.stake)}` : `${Number(spin.payout) - Number(spin.stake)}`, " pt"))) : React.createElement("p", null, "Er zijn nog geen inzetten geplaatst.")));
+                React.createElement("span", null, Number(spin.payout) - Number(spin.stake) >= 0 ? `+${Number(spin.payout) - Number(spin.stake)}` : `${Number(spin.payout) - Number(spin.stake)}`, " pt"))) : React.createElement("p", null, "Er zijn nog geen inzetten geplaatst."))),
+        spinning && React.createElement("div", { className: "roulette-spin-screen", role: "dialog", "aria-modal": "true", "aria-label": "Roulette draait" },
+            React.createElement("div", { className: "roulette-spin-screen-content", "aria-live": "polite" },
+                React.createElement("span", { className: "eyebrow" }, "EUROPEES ROULETTE"),
+                React.createElement("h2", null, "De kogel rolt..."),
+                React.createElement("p", null, "Waar vallen jouw punten?"),
+                wheel,
+                React.createElement("strong", null, lastSpin ? `Nummer ${lastSpin.winning_number}` : "Even geduld..."))));
 }
 export default function App() {
     const [booting, setBooting] = useState(true), [user, setUser] = useState(null), [profile, setProfile] = useState(null);
@@ -447,16 +543,29 @@ export default function App() {
     const [members, setMembers] = useState([]), [challenges, setChallenges] = useState([]), [participations, setParticipations] = useState([]);
     const [challengeFunds, setChallengeFunds] = useState([]), [challengeAwards, setChallengeAwards] = useState([]);
     const [shopItems, setShopItems] = useState([]), [shopPurchases, setShopPurchases] = useState([]);
-    const [dailyBonuses, setDailyBonuses] = useState([]), [rouletteSpins, setRouletteSpins] = useState([]), [groupStartingPoints, setGroupStartingPoints] = useState([]);
+    const [dailyBonuses, setDailyBonuses] = useState([]), [dailyBonusEarnedToday, setDailyBonusEarnedToday] = useState(false), [dailyBonusAwardDate, setDailyBonusAwardDate] = useState(null);
+    const [rouletteSpins, setRouletteSpins] = useState([]), [groupStartingPoints, setGroupStartingPoints] = useState([]);
     const [tab, setTab] = useState('home'), [modal, setModal] = useState(null), [busy, setBusy] = useState(false);
     const [toast, setToast] = useState(null), [filter, setFilter] = useState('alles'), [search, setSearch] = useState('');
+    const [preferences, setPreferences] = useState(readPreferences), [celebration, setCelebration] = useState(null);
+    const [settingsName, setSettingsName] = useState('');
     const [groupName, setGroupName] = useState(''), [joinCode, setJoinCode] = useState('');
     const [newChallenge, setNewChallenge] = useState({ title: '', description: '', category: 'avontuur', points: 100, reward_slots: 1 });
     const [newShopItem, setNewShopItem] = useState({ title: '', description: '', price: 100, stock: 1 });
     const [selectedChallenge, setSelectedChallenge] = useState(null), [selectedParticipation, setSelectedParticipation] = useState(null);
     const [proofText, setProofText] = useState(''), [proofFile, setProofFile] = useState(null), [previewUrl, setPreviewUrl] = useState(null);
     const [reloadTick, setReloadTick] = useState(0), [groupsMenu, setGroupsMenu] = useState(false);
+    const approvedParticipationIdsRef = useRef(new Set());
+    const loadedGroupKeyRef = useRef(null);
     const showToast = (text, error = false) => setToast({ text, error });
+    const triggerCelebration = (text, audioContext = null) => {
+        if (preferences.confetti) {
+            const id = Date.now();
+            setCelebration({ id, text });
+            window.setTimeout(() => setCelebration(current => current?.id === id ? null : current), 3200);
+        }
+        if (preferences.sound) playCelebrationTune(audioContext);
+    };
     const closeToast = useCallback(() => setToast(null), []);
     const closeModal = useCallback(() => { setModal(null); setPreviewUrl(null); }, []);
     const activeGroup = groups.find(g => g.id === groupId);
@@ -469,8 +578,19 @@ export default function App() {
     const completed = myParticipations.filter(p => p.status === 'approved').length;
     const active = myParticipations.filter(p => p.status === 'accepted' || p.status === 'rejected').length;
     const profileName = profile?.display_name || 'Speler';
+    const today = amsterdamDateKey();
+    const hasEarnedDailyBonus = dailyBonusAwardDate === today && dailyBonusEarnedToday;
     const shopBalance = pointBalance(profile?.id, challenges, participations, shopPurchases, challengeFunds, challengeAwards, dailyBonuses, rouletteSpins, groupStartingPoints);
     const challengeCost = Number(newChallenge.points) * Number(newChallenge.reward_slots);
+    useEffect(() => {
+        try {
+            localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+        }
+        catch (err) {
+            console.warn('Instellingen konden niet op dit apparaat worden opgeslagen.', err);
+        }
+    }, [preferences]);
+    useEffect(() => setSettingsName(profile?.display_name || ''), [profile?.id, profile?.display_name]);
     useEffect(() => { let live = true; currentSession().then(({ user: u }) => { if (live)
         setUser(u); }).catch(err => { if (live)
         setToast({ text: err.message, error: true }); }).finally(() => { if (live)
@@ -503,13 +623,23 @@ export default function App() {
         setShopItems([]);
         setShopPurchases([]);
         setDailyBonuses([]);
+        setDailyBonusEarnedToday(false);
+        setDailyBonusAwardDate(null);
         setRouletteSpins([]);
         setGroupStartingPoints([]);
         return;
-    } let cancelled = false; setGroupLoading(true); localStorage.setItem('puntjacht-active-group', groupId); loadGroup(groupId).then(data => { if (cancelled)
-        return; setMembers(data.members); setChallenges(data.challenges); setParticipations(data.participations); setChallengeFunds(data.challengeFunds); setChallengeAwards(data.challengeAwards); setShopItems(data.shopItems); setShopPurchases(data.shopPurchases); setDailyBonuses(data.dailyBonuses); setRouletteSpins(data.rouletteSpins); setGroupStartingPoints(data.groupStartingPoints); }).catch(err => { if (!cancelled)
+    } let cancelled = false; setGroupLoading(true); localStorage.setItem('puntjacht-active-group', groupId); loadGroup(groupId, profile?.id).then(data => { if (cancelled)
+        return;
+        const groupKey = `${groupId}:${profile?.id || ''}`;
+        const approvedIds = new Set(data.participations.filter(item => item.user_id === profile?.id && item.status === 'approved').map(item => item.id));
+        if (loadedGroupKeyRef.current === groupKey && [...approvedIds].some(id => !approvedParticipationIdsRef.current.has(id))) {
+            triggerCelebration('Challenge voltooid!');
+        }
+        loadedGroupKeyRef.current = groupKey;
+        approvedParticipationIdsRef.current = approvedIds;
+        setMembers(data.members); setChallenges(data.challenges); setParticipations(data.participations); setChallengeFunds(data.challengeFunds); setChallengeAwards(data.challengeAwards); setShopItems(data.shopItems); setShopPurchases(data.shopPurchases); setDailyBonuses(data.dailyBonuses); setDailyBonusEarnedToday(data.dailyBonusEarnedToday); setDailyBonusAwardDate(data.dailyBonusAwardDate); setRouletteSpins(data.rouletteSpins); setGroupStartingPoints(data.groupStartingPoints); }).catch(err => { if (!cancelled)
         showToast(err.message, true); }).finally(() => { if (!cancelled)
-        setGroupLoading(false); }); return () => { cancelled = true; }; }, [groupId, reloadTick]);
+        setGroupLoading(false); }); return () => { cancelled = true; }; }, [groupId, profile?.id, reloadTick]);
     useEffect(() => { if (!groupId)
         return; const stop = subscribeToGroup(groupId, () => setReloadTick(n => n + 1)); const onFocus = () => setReloadTick(n => n + 1); window.addEventListener('focus', onFocus); return () => { stop(); window.removeEventListener('focus', onFocus); }; }, [groupId]);
     useEffect(() => { if (!user || !profile)
@@ -540,6 +670,19 @@ export default function App() {
         setJoinCode('');
         closeModal();
     } };
+    const handleSaveProfile = async (e) => {
+        e.preventDefault();
+        const name = settingsName.trim();
+        if (name.length < 2 || name.length > 40) {
+            showToast('Gebruik een naam van 2 tot 40 tekens.', true);
+            return;
+        }
+        await safeAction(async () => {
+            const displayName = await updateProfile(profile.id, name);
+            setProfile(current => ({ ...current, display_name: displayName }));
+            setMembers(current => current.map(member => member.id === profile.id ? { ...member, display_name: displayName } : member));
+        }, 'Je naam is bijgewerkt!');
+    };
     const handleAddChallenge = async (e) => { e.preventDefault(); const error = validChallenge(newChallenge); if (error) {
         showToast(error, true);
         return;
@@ -600,7 +743,14 @@ export default function App() {
         return;
     } const ok = await safeAction(() => submitProof(groupId, selectedParticipation, proofText, proofFile, profile.id), 'Bewijs ingediend! Je vrienden kunnen het nu beoordelen.'); if (ok)
         closeModal(); };
-    const handleReview = async (id, approved) => { await safeAction(() => reviewSubmission(id, approved), approved ? 'Goedgekeurd! Je eventuele dagbonus van 25 punten is ook bijgeschreven.' : 'Bewijs afgekeurd. De betaalde plek is weer beschikbaar.'); };
+    const handleReview = async (id, approved) => {
+        const audioContext = approved && preferences.sound ? createCelebrationAudioContext() : null;
+        const ok = await safeAction(() => reviewSubmission(id, approved), approved
+            ? `Goedgekeurd! Is dit vandaag je eerste goedgekeurde challenge, dan krijg je ${DAILY_CHALLENGE_BONUS} bonuspunten.`
+            : 'Bewijs afgekeurd. De betaalde plek is weer beschikbaar.');
+        if (ok && approved) triggerCelebration('Challenge voltooid!', audioContext);
+        else if (audioContext && audioContext.state !== 'closed') audioContext.close().catch(err => console.warn('Feestmuziek kon niet worden afgesloten.', err));
+    };
     const handleRouletteSpin = async (bets) => {
         setBusy(true);
         try {
@@ -727,7 +877,7 @@ export default function App() {
                     React.createElement("button", { onClick: () => setModal('about'), "aria-label": "Uitleg" },
                         "Meer info ",
                         React.createElement(ArrowRight, { size: 14 }))),
-                !activeGroup ? React.createElement("div", { className: "first-group" },
+                !activeGroup && tab !== 'settings' ? React.createElement("div", { className: "first-group" },
                     React.createElement("div", { className: "first-group-icon" },
                         React.createElement(Users, { size: 32 })),
                     React.createElement("h1", null, "Iedere strijd begint met een groep."),
@@ -745,13 +895,13 @@ export default function App() {
                                 React.createElement("div", { className: "eyebrow" },
                                     React.createElement("span", { className: "eyebrow-line" }),
                                     " ",
-                                    activeGroup.name.toUpperCase(),
+                                    (activeGroup?.name || 'PROFIEL').toUpperCase(),
                                     " ",
                                     React.createElement("span", { className: "eyebrow-sep" }, "/"),
                                     " ",
                                     tab === 'home' ? 'DASHBOARD' : navItems.find(x => x.key === tab)?.label.toUpperCase()),
-                                React.createElement("h1", null, tab === 'home' ? `Hey, ${profileName.split(' ')[0]} 👋` : tab === 'challenges' ? 'Alle challenges' : tab === 'shop' ? 'Beloningen van de groep' : tab === 'roulette' ? 'Roulette' : tab === 'ranking' ? 'Het klassement' : 'Bewijs beoordelen'),
-                                React.createElement("p", null, tab === 'home' ? 'Tijd om punten te pakken. Wie staat er straks bovenaan?' : tab === 'challenges' ? 'Kies je volgende uitdaging. De punten liggen voor het oprapen.' : tab === 'shop' ? 'Ruil je verdiende punten in voor beloningen van je groepsgenoten.' : tab === 'roulette' ? 'Waag je punten aan een draai van het Europese roulettewiel.' : tab === 'ranking' ? 'Alle punten tellen. Wie pakt de winst?' : 'Help je groepsgenoten aan hun verdiende punten.')),
+                                React.createElement("h1", null, tab === 'home' ? `Hey, ${profileName.split(' ')[0]} 👋` : tab === 'challenges' ? 'Alle challenges' : tab === 'shop' ? 'Beloningen van de groep' : tab === 'roulette' ? 'Roulette' : tab === 'ranking' ? 'Het klassement' : tab === 'settings' ? 'Instellingen' : 'Bewijs beoordelen'),
+                                React.createElement("p", null, tab === 'home' ? 'Tijd om punten te pakken. Wie staat er straks bovenaan?' : tab === 'challenges' ? 'Kies je volgende uitdaging. De punten liggen voor het oprapen.' : tab === 'shop' ? 'Ruil je verdiende punten in voor beloningen van je groepsgenoten.' : tab === 'roulette' ? 'Waag je punten aan een draai van het Europese roulettewiel.' : tab === 'ranking' ? 'Alle punten tellen. Wie pakt de winst?' : tab === 'settings' ? 'Pas je profiel en spelvoorkeuren aan.' : 'Help je groepsgenoten aan hun verdiende punten.')),
                             React.createElement("div", { className: "header-actions" },
                                 React.createElement("button", { className: "button button--outline button--header", onClick: () => setModal('invite') },
                                     React.createElement(Link2, { size: 17 }),
@@ -761,6 +911,7 @@ export default function App() {
                                     " Challenge maken"))),
                         groupLoading && challenges.length === 0 ? React.createElement(Loading, null) : React.createElement(React.Fragment, null,
                             tab === 'home' && React.createElement(React.Fragment, null,
+                                React.createElement(DailyBonusBanner, { earned: hasEarnedDailyBonus }),
                                 React.createElement("section", { className: "hero" },
                                     React.createElement("div", { className: "hero-copy" },
                                         React.createElement("span", { className: "hero-kicker" },
@@ -896,6 +1047,7 @@ export default function App() {
                                             React.createElement("small", null, c?.title || 'Challenge')),
                                         React.createElement(PointBadge, { points: c?.points || 0 })); })) : React.createElement("div", { className: "activity-placeholder" }, "Nog geen goedgekeurde challenges."))),
                             tab === 'challenges' && React.createElement(React.Fragment, null,
+                                React.createElement(DailyBonusBanner, { earned: hasEarnedDailyBonus }),
                                 React.createElement("div", { className: "challenge-toolbar" },
                                     React.createElement("div", { className: "filter-list" }, [{ id: 'alles', label: 'Alle' }, { id: 'beschikbaar', label: 'Beschikbaar' }, { id: 'bezig', label: 'Bezig' }, { id: 'pending', label: 'In beoordeling' }, { id: 'voltooid', label: 'Voltooid' }].map(item => React.createElement("button", { key: item.id, className: `filter-chip ${filter === item.id ? 'filter-chip--active' : ''}`, onClick: () => setFilter(item.id) }, item.label))),
                                     React.createElement("div", { className: "search-input" },
@@ -957,7 +1109,9 @@ export default function App() {
                                 members,
                                 userId: profile?.id,
                                 busy,
-                                onSpin: handleRouletteSpin
+                                soundEnabled: preferences.sound,
+                                onSpin: handleRouletteSpin,
+                                onCelebrate: triggerCelebration
                             }),
                             tab === 'ranking' && React.createElement(React.Fragment, null,
                                 React.createElement("div", { className: "leaderboard-intro" },
@@ -1001,6 +1155,56 @@ export default function App() {
                                             p.points,
                                             " ",
                                             React.createElement("small", null, "pt")))))),
+                            tab === 'settings' && React.createElement("div", { className: "settings-grid" },
+                                React.createElement("form", { className: "settings-card", onSubmit: handleSaveProfile },
+                                    React.createElement("div", { className: "settings-card-heading" },
+                                        React.createElement("div", { className: "settings-icon" }, React.createElement(Pencil, { size: 19 })),
+                                        React.createElement("div", null,
+                                            React.createElement("h2", null, "Jouw profiel"),
+                                            React.createElement("p", null, "Zo zien je groepsgenoten je."))),
+                                    React.createElement("label", { className: "settings-field" },
+                                        "Weergavenaam",
+                                        React.createElement("input", {
+                                            autoComplete: "name",
+                                            maxLength: 40,
+                                            minLength: 2,
+                                            value: settingsName,
+                                            onChange: event => setSettingsName(event.target.value),
+                                            required: true
+                                        })),
+                                    profile?.email && React.createElement("div", { className: "settings-account-email" },
+                                        React.createElement("span", null, "E-mailadres"),
+                                        React.createElement("strong", null, profile.email)),
+                                    React.createElement("button", { className: "button button--primary", type: "submit", disabled: busy },
+                                        busy ? 'Opslaan...' : 'Naam opslaan',
+                                        React.createElement(Check, { size: 17 }))),
+                                React.createElement("section", { className: "settings-card" },
+                                    React.createElement("div", { className: "settings-card-heading" },
+                                        React.createElement("div", { className: "settings-icon settings-icon--purple" }, React.createElement(Sparkles, { size: 19 })),
+                                        React.createElement("div", null,
+                                            React.createElement("h2", null, "Spelvoorkeuren"),
+                                            React.createElement("p", null, "Kies hoe de app feest viert."))),
+                                    React.createElement("label", { className: "settings-toggle" },
+                                        React.createElement("span", null,
+                                            React.createElement("strong", null, "Feestmuziek"),
+                                            React.createElement("small", null, "Een kort vrolijk muziekje bij winst.")),
+                                        React.createElement("input", {
+                                            type: "checkbox",
+                                            checked: preferences.sound,
+                                            onChange: event => setPreferences(current => ({ ...current, sound: event.target.checked }))
+                                        })),
+                                    React.createElement("label", { className: "settings-toggle" },
+                                        React.createElement("span", null,
+                                            React.createElement("strong", null, "Confetti"),
+                                            React.createElement("small", null, "Confetti bij een voltooide challenge of roulettewinst.")),
+                                        React.createElement("input", {
+                                            type: "checkbox",
+                                            checked: preferences.confetti,
+                                            onChange: event => setPreferences(current => ({ ...current, confetti: event.target.checked }))
+                                        }))),
+                                React.createElement("section", { className: "settings-note" },
+                                    React.createElement(Users, { size: 20 }),
+                                    React.createElement("p", null, "Iedereen ontvangt automatisch 100 startpunten per groep. Je instellingen en naam blijven bewaard."))),
                             tab === 'reviews' && React.createElement(React.Fragment, null,
                                 React.createElement("div", { className: "review-guide" },
                                     React.createElement("div", { className: "review-guide-icon" },
@@ -1049,7 +1253,7 @@ export default function App() {
                 React.createElement(I, { size: 21 }),
                 item.key === 'reviews' && reviewQueue.length > 0 && React.createElement("span", { className: "bottom-count" })),
             React.createElement("small", null, item.label)); })),
-        tab !== 'shop' && tab !== 'roulette' && React.createElement("button", { className: "floating-add", onClick: () => setModal('add'), "aria-label": "Nieuwe challenge", disabled: !activeGroup },
+        tab !== 'shop' && tab !== 'roulette' && tab !== 'settings' && React.createElement("button", { className: "floating-add", onClick: () => setModal('add'), "aria-label": "Nieuwe challenge", disabled: !activeGroup },
             React.createElement(Plus, { size: 24 })),
         modal === 'group' && React.createElement(Modal, { title: "Maak een nieuwe groep", subtitle: "Een eigen plek voor jouw vriendengroep.", onClose: closeModal },
             React.createElement("form", { className: "modal-form", onSubmit: handleCreateGroup },
@@ -1215,5 +1419,6 @@ export default function App() {
             React.createElement("button", { className: "button button--primary button--full", onClick: closeModal },
                 "Begrepen ",
                 React.createElement(Check, { size: 18 }))),
+        celebration && React.createElement(Celebration, { text: celebration.text }),
         React.createElement(Toast, { value: toast, onClose: closeToast }));
 }

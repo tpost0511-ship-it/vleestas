@@ -24,7 +24,7 @@ globalThis.localStorage = {
   setItem: (key, value) => stored.set(key, String(value))
 };
 
-const { createGroup, joinGroup, loadGroup } = await import('../lib/data.js');
+const { createGroup, joinGroup, loadGroup, updateProfile } = await import('../lib/data.js');
 
 test('legacy members and new groups receive one 100-point starting balance', async () => {
   const legacy = await loadGroup('legacy-group');
@@ -41,4 +41,14 @@ test('legacy members and new groups receive one 100-point starting balance', asy
   const newGroup = await loadGroup(newGroupId);
   assert.equal(newGroup.groupStartingPoints.length, 1);
   assert.equal(newGroup.groupStartingPoints[0].points, 100);
+});
+
+test('updating the demo profile name updates the profile and group member', async () => {
+  const updatedName = await updateProfile('me', 'Nieuwe naam');
+  const group = await loadGroup('legacy-group', 'me');
+
+  assert.equal(updatedName, 'Nieuwe naam');
+  assert.equal(group.members.find(member => member.id === 'me').display_name, 'Nieuwe naam');
+
+  await updateProfile('me', 'Jij');
 });
