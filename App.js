@@ -484,7 +484,7 @@ export default function App() {
                             onInvite: () => setModal('invite'),
                             onAdd: () => setModal('add')
                         }),
-                        groupLoading && challenges.length === 0 ? React.createElement(Loading, null) : pageContent))),
+                        groupLoading && challenges.length === 0 && loadedGroupKeyRef.current !== `${groupId}:${profile?.id || ''}` ? React.createElement(Loading, null) : pageContent))),
         React.createElement("nav", { className: "bottom-nav" }, navItems.map(item => { const I = item.icon; return React.createElement("button", { key: item.key, className: tab === item.key ? 'bottom-nav--active' : '', onClick: () => setTab(item.key) },
             React.createElement("span", { className: "bottom-icon" },
                 React.createElement(I, { size: 21 }),
