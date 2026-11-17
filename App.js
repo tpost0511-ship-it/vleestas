@@ -324,7 +324,8 @@ function RoulettePanel({ balance, spins, members, userId, busy, soundEnabled, on
     const [amount, setAmount] = useState(Math.max(1, Math.min(10, balance)));
     const [bets, setBets] = useState([]);
     const [lastSpin, setLastSpin] = useState(null);
-    const [spinCount, setSpinCount] = useState(0);
+    const [wheelRotation, setWheelRotation] = useState(0);
+    const [wheelAnimation, setWheelAnimation] = useState(null);
     const [ballRotation, setBallRotation] = useState(0);
     const [spinning, setSpinning] = useState(false);
     const [error, setError] = useState('');
@@ -398,14 +399,22 @@ function RoulettePanel({ balance, spins, members, userId, busy, soundEnabled, on
         const audioContext = soundEnabled ? getAudioContext() : null;
         const result = await onSpin(bets.map(({ type, value, stake }) => ({ type, value, stake })));
         if (result) {
+            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const duration = prefersReducedMotion ? 1500 : 4300;
+            const minRotation = prefersReducedMotion ? 360 : 1800;
+            const wheelIndex = europeanRouletteWheel.indexOf(Number(result.winning_number));
+            const landingRotation = -wheelIndex * wheelSegment;
+            const minimumTarget = wheelRotation + minRotation;
+            const targetRotation = minimumTarget + ((landingRotation - minimumTarget) % 360 + 360) % 360;
             setLastSpin(result);
-            setSpinCount(count => count + 1);
+            setWheelAnimation({ from: wheelRotation, to: targetRotation });
+            setWheelRotation(targetRotation);
             setBallRotation(rotation => rotation - 1800);
             setBets([]);
             setError('');
-            const duration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 100 : 4300;
             await new Promise(resolve => window.setTimeout(resolve, duration));
             setSpinning(false);
+            setWheelAnimation(null);
             playBallDropSound(audioContext);
             const net = Number(result.payout) - Number(result.stake);
             if (net > 0) onCelebrate(`Gewonnen! +${net} punten`, audioContext);
@@ -420,11 +429,17 @@ function RoulettePanel({ balance, spins, members, userId, busy, soundEnabled, on
         const fill = color === 'red' ? '#bd394b' : color === 'black' ? '#292a31' : '#14844d';
         return `${fill} ${index * wheelSegment}deg ${(index + 1) * wheelSegment}deg`;
     }).join(', ')})`;
-    const wheelIndex = lastSpin ? europeanRouletteWheel.indexOf(Number(lastSpin.winning_number)) : 0;
-    const wheelRotation = lastSpin ? spinCount * 1800 - wheelIndex * wheelSegment : 0;
     const wheel = React.createElement("div", { className: `roulette-wheel-wrap${spinning ? ' roulette-wheel-wrap--spinning' : ''}`, "aria-label": lastSpin ? `Winnende nummer ${lastSpin.winning_number}` : 'Europees roulettewiel' },
         React.createElement("span", { className: "roulette-wheel-pointer" }),
-        React.createElement("div", { className: "roulette-wheel", style: { background: wheelBackground, transform: `rotate(${wheelRotation}deg)` } },
+        React.createElement("div", {
+            className: `roulette-wheel${wheelAnimation ? ' roulette-wheel--rolling' : ''}`,
+            style: {
+                background: wheelBackground,
+                transform: `rotate(${wheelRotation}deg)`,
+                '--roulette-wheel-from': `${wheelAnimation?.from ?? wheelRotation}deg`,
+                '--roulette-wheel-to': `${wheelAnimation?.to ?? wheelRotation}deg`
+            }
+        },
             europeanRouletteWheel.map((number, index) => {
                 const angle = index * wheelSegment;
                 return React.createElement("span", {

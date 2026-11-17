@@ -76,6 +76,8 @@
 .roulette-rules{margin:0;border-radius:12px;background:#f4f2ff;color:#60568d;padding:12px 14px;font-size:12px;line-height:1.55}
 .roulette-wheel-wrap{position:sticky;display:grid;place-items:center;min-height:228px;padding:12px}
 .roulette-wheel{position:relative;width:204px;height:204px;border:7px solid #d5b35d;border-radius:50%;box-shadow:0 6px 16px #211b2c33,inset 0 0 0 2px #f4dda1;transition:transform 4.2s cubic-bezier(.12,.72,.08,1)}
+.roulette-wheel--rolling{animation:roulette-wheel-roll 4.2s cubic-bezier(.12,.72,.08,1) both}
+@keyframes roulette-wheel-roll{from{transform:rotate(var(--roulette-wheel-from,0deg))}to{transform:rotate(var(--roulette-wheel-to,1800deg))}}
 .roulette-wheel-label{position:absolute;top:50%;left:50%;color:#fff;font-size:7px;font-weight:900;line-height:1}
 .roulette-ball-track{position:absolute;inset:0;z-index:3;pointer-events:none;transition:transform 4.2s cubic-bezier(.12,.72,.08,1)}
 .roulette-ball{position:absolute;top:7px;left:50%;width:10px;height:10px;border:1px solid #d9d4c7;border-radius:50%;background:#fff;box-shadow:0 1px 5px #17131d88;transform:translateX(-50%)}
@@ -223,4 +225,6 @@
 @media(prefers-reduced-motion:reduce){
   .celebration-confetti{animation:none}
   .celebration-message{animation:none}
+  .roulette-wheel--rolling{animation-duration:1.5s!important}
+  .roulette-wheel-wrap--spinning .roulette-ball{animation-duration:1.5s!important}
 }
