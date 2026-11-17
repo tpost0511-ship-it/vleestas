@@ -1,8 +1,16 @@
 const React = window.React;
-const { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } = React;
-import { Trophy, Flame, Sparkles, Users, House, Plus, Check, Clock3, ArrowRight, CheckCircle2, X, Link2, Copy, LogOut, Search, Medal, ShieldCheck, RefreshCcw, PartyPopper, Dumbbell, Mountain, LockKeyhole, UploadCloud, CheckCheck, Zap, Target, UserPlus, Crown, TrendingUp, AlertCircle, CircleCheckBig, Image, RotateCcw, ExternalLink, Gift, Pencil } from './lib/icons.js';
+const { useCallback, useEffect, useMemo, useRef, useState } = React;
+import { Trophy, Sparkles, Users, House, Plus, Check, Clock3, ArrowRight, CheckCircle2, X, Link2, Copy, LogOut, ShieldCheck, PartyPopper, Dumbbell, Mountain, LockKeyhole, UploadCloud, Zap, Target, UserPlus, Image, RotateCcw, Gift, Pencil } from './lib/icons.js';
 import { isDemo, currentSession, watchAuth, logIn, signUp, logOut, getProfile, updateProfile, listGroups, createGroup, joinGroup, loadGroup, addChallenge, cancelChallenge, withdrawChallenge, addShopItem, buyShopItem, acceptChallenge, submitProof, reviewSubmission, spinRoulette, getProofUrl, subscribeToGroup } from './lib/data.js';
-import { CATEGORIES, DAILY_CHALLENGE_BONUS, amsterdamDateKey, categoryFor, ranking, challengeState, shortName, formatDate, inviteLink, validChallenge, validShopItem, pointBalance, rouletteColor } from './lib/game.js';
+import { CATEGORIES, DAILY_CHALLENGE_BONUS, amsterdamDateKey, categoryFor, ranking, challengeState, inviteLink, validChallenge, validShopItem, pointBalance } from './lib/game.js';
+import { isTabPath, pathForTab, tabForPath } from './lib/routes.js';
+import { Avatar, CategoryTag, Loading, PointBadge } from './components/atoms/index.js';
+import { AuthScreen, Modal, Toast } from './components/molecules/index.js';
+import Celebration from './components/organisms/Celebration.js';
+import PageHeader from './components/organisms/PageHeader.js';
+import RoulettePanel from './components/organisms/RoulettePanel.js';
+import { ChallengesPage, HomePage, RankingPage, ReviewsPage, SettingsPage, ShopPage } from './components/pages/index.js';
+import AppShell from './components/templates/AppShell.js';
 const IconFor = { avontuur: Mountain, sport: Dumbbell, sociaal: Users, grappig: PartyPopper, overig: Sparkles };
 const navItems = [
     { key: 'home', label: 'Overzicht', icon: House },
@@ -13,7 +21,6 @@ const navItems = [
     { key: 'reviews', label: 'Beoordelen', icon: ShieldCheck },
     { key: 'settings', label: 'Instellingen', icon: Pencil }
 ];
-const statusLabels = { accepted: 'Bezig', pending: 'In beoordeling', approved: 'Voltooid', rejected: 'Afgekeurd' };
 const PREFERENCES_KEY = 'puntjacht-preferences-v1';
 
 function readPreferences() {
@@ -72,551 +79,6 @@ function playCelebrationTune(context = null) {
         console.warn('Feestmuziek is niet beschikbaar.', err);
     }
 }
-function Celebration({ text }) {
-    return React.createElement("div", { className: "celebration-overlay", role: "status", "aria-live": "polite" },
-        React.createElement("div", { className: "celebration-message" },
-            React.createElement(PartyPopper, { size: 25 }),
-            React.createElement("strong", null, text)),
-        Array.from({ length: 48 }, (_, index) => React.createElement("span", {
-            className: "celebration-confetti",
-            key: index,
-            "aria-hidden": "true",
-            style: {
-                left: `${(index * 37) % 100}%`,
-                '--confetti-delay': `${(index % 12) * 55}ms`,
-                '--confetti-hue': `${(index * 47) % 360}deg`
-            }
-        })));
-}
-function DailyBonusBanner({ earned }) {
-    return React.createElement("section", { className: `daily-bonus-banner${earned ? ' daily-bonus-banner--earned' : ''}` },
-        React.createElement("div", { className: "daily-bonus-icon" }, React.createElement(Zap, { size: 21, fill: "currentColor" })),
-        React.createElement("div", null,
-            React.createElement("strong", null, earned ? "Dagbonus al verdiend!" : "Pak je dagelijkse bonus"),
-            React.createElement("p", null, earned
-                ? "Je hebt vandaag je eerste challengebonus al ontvangen."
-                : `Rond vandaag je eerste challenge af. Na goedkeuring krijg je ${DAILY_CHALLENGE_BONUS} bonuspunten.`)),
-        React.createElement("span", null, `+${DAILY_CHALLENGE_BONUS} pt`));
-}
-function Avatar({ name = '?', size = 'md', index = 0 }) {
-    return React.createElement("div", { className: `avatar avatar--${size} avatar--color-${index % 6}`, title: name }, shortName(name));
-}
-function PointBadge({ points, large = false }) { return React.createElement("span", { className: `point-badge ${large ? 'point-badge--large' : ''}` },
-    React.createElement(Zap, { size: large ? 17 : 14, fill: "currentColor" }),
-    points,
-    " pt"); }
-function CategoryTag({ category }) { const c = categoryFor(category); const I = IconFor[c.id]; return React.createElement("span", { className: `category-tag category-tag--${c.tone}` },
-    React.createElement(I, { size: 13 }),
-    c.label); }
-function StatusTag({ status }) { if (!status)
-    return null; const I = status === 'approved' ? CheckCheck : status === 'pending' ? Clock3 : status === 'rejected' ? RotateCcw : Flame; return React.createElement("span", { className: `status-tag status-tag--${status}` },
-    React.createElement(I, { size: 13 }),
-    statusLabels[status]); }
-function NoResults({ icon: Icon = Sparkles, title, text, action }) { return React.createElement("div", { className: "empty-state" },
-    React.createElement("div", { className: "empty-icon" },
-        React.createElement(Icon, { size: 28 })),
-    React.createElement("h3", null, title),
-    React.createElement("p", null, text),
-    action); }
-function Loading() { return React.createElement("div", { className: "loading-state" },
-    React.createElement("div", { className: "spin" }),
-    React.createElement("p", null, "Even laden...")); }
-function Modal({ title, subtitle, onClose, children, wide = false }) {
-    useEffect(() => { const onKey = e => { if (e.key === 'Escape')
-        onClose(); }; document.addEventListener('keydown', onKey); document.body.style.overflow = 'hidden'; return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; }; }, [onClose]);
-    return React.createElement("div", { className: "modal-backdrop", onMouseDown: e => { if (e.target === e.currentTarget)
-            onClose(); } },
-        React.createElement("section", { role: "dialog", "aria-modal": "true", "aria-label": title, className: `modal ${wide ? 'modal--wide' : ''}` },
-            React.createElement("div", { className: "modal-heading" },
-                React.createElement("div", null,
-                    React.createElement("h2", null, title),
-                    subtitle && React.createElement("p", null, subtitle)),
-                React.createElement("button", { className: "icon-button", "aria-label": "Sluiten", onClick: onClose },
-                    React.createElement(X, { size: 19 }))),
-            children));
-}
-function Toast({ value, onClose }) { useEffect(() => { if (!value)
-    return; const t = setTimeout(onClose, 4600); return () => clearTimeout(t); }, [value, onClose]); return value ? React.createElement("div", { className: `toast ${value.error ? 'toast--error' : ''}`, role: "status" },
-    value.error ? React.createElement(AlertCircle, { size: 19 }) : React.createElement(CircleCheckBig, { size: 19 }),
-    React.createElement("span", null, value.text),
-    React.createElement("button", { onClick: onClose, "aria-label": "Sluiten" },
-        React.createElement(X, { size: 16 }))) : null; }
-function AuthScreen({ onToast }) {
-    const [mode, setMode] = useState('login');
-    const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [busy, setBusy] = useState(false);
-    const [message, setMessage] = useState('');
-    const submit = async (e) => {
-        e.preventDefault();
-        setMessage('');
-        setBusy(true);
-        try {
-            if (mode === 'signup') {
-                if (name.trim().length < 2)
-                    throw new Error('Vul een naam van minimaal 2 tekens in.');
-                if (password.length < 6)
-                    throw new Error('Gebruik een wachtwoord van minimaal 6 tekens.');
-                const result = await signUp(name, email, password);
-                if (!result.session) {
-                    setMessage('Account gemaakt! Open de bevestigingsmail en klik op de link. Daarna kun je inloggen.');
-                    setMode('login');
-                }
-                else
-                    onToast('Je account is aangemaakt!');
-            }
-            else {
-                await logIn(email, password);
-                onToast('Welkom terug!');
-            }
-        }
-        catch (err) {
-            setMessage(err.message || 'Inloggen mislukt.');
-        }
-        finally {
-            setBusy(false);
-        }
-    };
-    return React.createElement("div", { className: "auth-page" },
-        React.createElement("div", { className: "auth-shell" },
-            React.createElement("div", { className: "auth-brand" },
-                React.createElement("img", { className: "brand-logo", src: "/logo.png", alt: "Al 4 jaar VleesTas" })),
-            React.createElement("div", { className: "auth-grid" },
-                React.createElement("div", { className: "auth-intro" },
-                    React.createElement("div", { className: "eyebrow light" },
-                        React.createElement(Sparkles, { size: 15 }),
-                        " THE FRIEND GROUP CHALLENGE APP"),
-                    React.createElement("h1", null,
-                        "Jullie vrienden.",
-                        React.createElement("br", null),
-                        React.createElement("span", null, "Jullie challenges."),
-                        React.createElement("br", null),
-                        "Jullie strijd."),
-                    React.createElement("p", null, "Daag elkaar uit, lever bewijs in en pak die eerste plek op het klassement. Elke challenge telt."),
-                    React.createElement("div", { className: "auth-feature-row" },
-                        React.createElement("span", null,
-                            React.createElement(Check, { size: 16 }),
-                            " Priv\u00E9groepen"),
-                        React.createElement("span", null,
-                            React.createElement(Check, { size: 16 }),
-                            " Eigen challenges"),
-                        React.createElement("span", null,
-                            React.createElement(Check, { size: 16 }),
-                            " Live punten")),
-                    React.createElement("div", { className: "auth-graphic" },
-                        React.createElement("div", { className: "auth-glow" }),
-                        React.createElement("div", { className: "auth-medal" },
-                            React.createElement(Trophy, { size: 46, strokeWidth: 2 })),
-                        React.createElement("div", { className: "auth-bubble auth-bubble--one" },
-                            React.createElement(Zap, { size: 15, fill: "currentColor" }),
-                            " +250 punten"),
-                        React.createElement("div", { className: "auth-bubble auth-bubble--two" },
-                            React.createElement(CheckCheck, { size: 17 }),
-                            " Challenge voltooid!"),
-                        React.createElement("div", { className: "auth-spark auth-spark--a" }, "\u2726"),
-                        React.createElement("div", { className: "auth-spark auth-spark--b" }, "\u2733"))),
-                React.createElement("div", { className: "auth-form-panel" },
-                    React.createElement("div", { className: "auth-form-heading" },
-                        React.createElement("div", { className: "auth-pill" },
-                            React.createElement(LockKeyhole, { size: 14 }),
-                            " Alleen jouw vriendengroep"),
-                        React.createElement("h2", null, mode === 'signup' ? 'Maak je account' : 'Welkom terug'),
-                        React.createElement("p", null, mode === 'signup' ? 'Start met challenges voor je vriendengroep.' : 'Log in en ga verder waar je gebleven was.')),
-                    React.createElement("form", { onSubmit: submit, className: "form-stack" },
-                        mode === 'signup' && React.createElement("label", null,
-                            "Jouw naam",
-                            React.createElement("input", { autoComplete: "name", maxLength: 40, placeholder: "Bijv. Thijmen", value: name, onChange: e => setName(e.target.value), required: true })),
-                        React.createElement("label", null,
-                            "E-mailadres",
-                            React.createElement("input", { autoComplete: "email", type: "email", placeholder: "jij@voorbeeld.nl", value: email, onChange: e => setEmail(e.target.value), required: true })),
-                        React.createElement("label", null,
-                            "Wachtwoord",
-                            React.createElement("input", { autoComplete: mode === 'signup' ? 'new-password' : 'current-password', type: "password", placeholder: "Minimaal 6 tekens", minLength: 6, value: password, onChange: e => setPassword(e.target.value), required: true })),
-                        message && React.createElement("div", { className: `form-note ${message.startsWith('Account') ? 'form-note--success' : ''}` }, message),
-                        React.createElement("button", { disabled: busy, className: "button button--primary button--full", type: "submit" },
-                            busy ? 'Even wachten...' : mode === 'signup' ? 'Account aanmaken' : 'Inloggen',
-                            React.createElement(ArrowRight, { size: 18 }))),
-                    React.createElement("p", { className: "auth-switch" },
-                        mode === 'signup' ? 'Heb je al een account?' : 'Nog geen account?',
-                        " ",
-                        React.createElement("button", { onClick: () => { setMode(mode === 'signup' ? 'login' : 'signup'); setMessage(''); } }, mode === 'signup' ? 'Log in' : 'Maak er een aan')),
-                    React.createElement("p", { className: "auth-footnote" }, "Gratis te gebruiken voor jou en je vrienden.")))));
-}
-function ChallengeCard({ challenge, participation, onAction, onCancel, onWithdraw, creator, viewerId }) {
-    const cat = categoryFor(challenge.category);
-    const Icon = IconFor[cat.id];
-    const status = participation?.status;
-    const bounty = challenge.bounty;
-    const isOwnChallenge = challenge.created_by === viewerId;
-    const isCancelled = Boolean(challenge.cancelled_at || bounty?.cancelled_at);
-    const noSlots = bounty && bounty.available_slots < 1;
-    const action = isOwnChallenge ? React.createElement("button", { className: "button button--sm button--soft", onClick: () => onCancel(challenge), disabled: isCancelled },
-        isCancelled ? 'Ingetrokken' : 'Intrekken') : status === 'approved' ? React.createElement("span", { className: "completed-mark" },
-        React.createElement(CheckCircle2, { size: 16 }),
-        " Klaar!") : status === 'pending' ? React.createElement("span", { className: "waiting-mark" },
-        React.createElement(Clock3, { size: 15 }),
-        " In beoordeling") : status === 'accepted' ? React.createElement("div", { className: "challenge-actions" },
-        React.createElement("button", { className: "button button--sm button--soft", onClick: () => onAction(challenge, participation) },
-            "Bewijs insturen",
-            React.createElement(ArrowRight, { size: 15 })),
-        bounty && React.createElement("button", { className: "challenge-cancel", onClick: () => onWithdraw(participation), title: "Stoppen en je betaalde plek vrijgeven" }, "Stoppen")) : isCancelled ? React.createElement("span", { className: "waiting-mark" }, "Ingetrokken") : status === 'rejected' && noSlots ? React.createElement("button", { className: "button button--sm button--soft", disabled: true }, "Geen betaalde plek") : noSlots ? React.createElement("span", { className: "waiting-mark" }, "Geen plekken vrij") : React.createElement("button", { className: `button button--sm ${status ? 'button--soft' : 'button--dark'}`, onClick: () => onAction(challenge, participation) },
-        status === 'rejected' ? 'Opnieuw insturen' : 'Accepteren',
-        React.createElement(ArrowRight, { size: 15 }));
-    return React.createElement("article", { className: "challenge-card" },
-        React.createElement("div", { className: "challenge-card-top" },
-            React.createElement("div", { className: `challenge-illustration challenge-illustration--${cat.tone}` },
-                React.createElement(Icon, { size: 23, strokeWidth: 1.9 })),
-            React.createElement(PointBadge, { points: challenge.points })),
-        React.createElement("div", { className: "challenge-text" },
-            React.createElement(CategoryTag, { category: challenge.category }),
-            React.createElement("h3", null, challenge.title),
-            React.createElement("p", null, challenge.description || 'Durf jij deze uitdaging aan?')),
-        React.createElement("div", { className: "challenge-card-bottom" },
-            React.createElement("div", { className: "challenge-by" },
-                "Door ",
-                creator || 'een groepsgenoot',
-                " \u00B7 ",
-                formatDate(challenge.created_at)),
-            action),
-        status === 'rejected' && React.createElement("div", { className: "challenge-rejected" }, noSlots ? "Je bewijs is afgekeurd en er is geen betaalde plek meer." : "Je bewijs is afgekeurd. Je kunt opnieuw bewijs indienen."),
-        bounty && !isOwnChallenge && !isCancelled && React.createElement("small", { className: "challenge-slots" }, bounty.slots_paid, " van ", bounty.slots_total, " plekken uitbetaald"));
-}
-function ShopCard({ item, seller, own, canAfford, busy, onBuy }) {
-    return React.createElement("article", { className: "shop-card" },
-        React.createElement("div", { className: "shop-card-top" },
-            React.createElement("div", { className: "shop-gift-icon" },
-                React.createElement(Gift, { size: 23 })),
-            React.createElement(PointBadge, { points: item.price })),
-        React.createElement("h3", null, item.title),
-        React.createElement("p", { className: "shop-description" }, item.description || 'Een beloning van een groepsgenoot.'),
-        React.createElement("div", { className: "shop-card-meta" },
-            React.createElement("span", null,
-                React.createElement(Avatar, { name: seller || 'Speler', size: "sm" }),
-                "Door ", seller || 'een groepsgenoot'),
-            React.createElement("small", null, item.stock, " beschikbaar")),
-        React.createElement("button", {
-            className: `button ${own || !canAfford || item.stock < 1 ? 'button--soft' : 'button--dark'} shop-buy`,
-            disabled: busy || own || !canAfford || item.stock < 1,
-            onClick: onBuy
-        },
-            own ? 'Jouw beloning' : item.stock < 1 ? 'Uitverkocht' : !canAfford ? 'Niet genoeg punten' : 'Kopen',
-            !own && canAfford && item.stock > 0 && React.createElement(ArrowRight, { size: 16 })));
-}
-const rouletteOutsideBets = [
-    { type: 'red', label: 'Rood', odds: '1:1' },
-    { type: 'black', label: 'Zwart', odds: '1:1' },
-    { type: 'even', label: 'Even', odds: '1:1' },
-    { type: 'odd', label: 'Oneven', odds: '1:1' },
-    { type: 'low', label: '1–18', odds: '1:1' },
-    { type: 'high', label: '19–36', odds: '1:1' }
-];
-const rouletteGroupBets = [
-    { type: 'dozen1', label: '1e dozijn · 1–12' },
-    { type: 'dozen2', label: '2e dozijn · 13–24' },
-    { type: 'dozen3', label: '3e dozijn · 25–36' },
-    { type: 'column1', label: 'Kolom 1' },
-    { type: 'column2', label: 'Kolom 2' },
-    { type: 'column3', label: 'Kolom 3' }
-];
-const europeanRouletteWheel = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
-function RoulettePanel({ balance, spins, members, userId, busy, soundEnabled, onSpin, onCelebrate }) {
-    const [amount, setAmount] = useState(Math.max(1, Math.min(10, balance)));
-    const [bets, setBets] = useState([]);
-    const [lastSpin, setLastSpin] = useState(null);
-    const [wheelRotation, setWheelRotation] = useState(0);
-    const [ballRotation, setBallRotation] = useState(0);
-    const [spinAnimation, setSpinAnimation] = useState(null);
-    const [spinning, setSpinning] = useState(false);
-    const [error, setError] = useState('');
-    const wheelRef = useRef(null);
-    const ballTrackRef = useRef(null);
-    const ballRef = useRef(null);
-    const audioContextRef = useRef(null);
-    useEffect(() => () => {
-        const context = audioContextRef.current;
-        if (context && context.state !== 'closed') {
-            context.close().catch(err => console.warn('Roulettegeluid kon niet worden afgesloten.', err));
-        }
-    }, []);
-    const getAudioContext = () => {
-        if (audioContextRef.current) return audioContextRef.current;
-        const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextConstructor) return null;
-        try {
-            audioContextRef.current = new AudioContextConstructor();
-            audioContextRef.current.resume().catch(err => console.warn('Roulettegeluid kon niet worden gestart.', err));
-            return audioContextRef.current;
-        }
-        catch (err) {
-            console.warn('Roulettegeluid is niet beschikbaar.', err);
-            return null;
-        }
-    };
-    const playBallDropSound = context => {
-        if (!context || context.state !== 'running') return;
-        const start = context.currentTime;
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        oscillator.type = 'triangle';
-        oscillator.frequency.setValueAtTime(900, start);
-        oscillator.frequency.exponentialRampToValueAtTime(280, start + 0.16);
-        gain.gain.setValueAtTime(0.18, start);
-        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.18);
-        oscillator.connect(gain);
-        gain.connect(context.destination);
-        oscillator.onended = () => {
-            oscillator.disconnect();
-            gain.disconnect();
-        };
-        oscillator.start(start);
-        oscillator.stop(start + 0.19);
-    };
-    useLayoutEffect(() => {
-        if (!spinAnimation) return;
-        const wheelElement = wheelRef.current;
-        const ballTrackElement = ballTrackRef.current;
-        const ballElement = ballRef.current;
-        if (!wheelElement || !ballTrackElement || !ballElement) {
-            setError('Het roulettewiel kon niet worden klaargezet. Probeer opnieuw.');
-            setSpinning(false);
-            setSpinAnimation(null);
-            return;
-        }
-        let cancelled = false;
-        const options = { duration: spinAnimation.duration, easing: 'cubic-bezier(.12,.72,.08,1)', fill: 'forwards' };
-        const animations = [];
-        try {
-            animations.push(wheelElement.animate([
-                { transform: `rotate(${spinAnimation.fromWheel}deg)` },
-                { transform: `rotate(${spinAnimation.toWheel}deg)` }
-            ], options));
-            animations.push(ballTrackElement.animate([
-                { transform: `rotate(${spinAnimation.fromBall}deg)` },
-                { transform: `rotate(${spinAnimation.toBall}deg)` }
-            ], options));
-            animations.push(ballElement.animate([
-                { transform: 'translate(-50%,0) scale(1)' },
-                { transform: 'translate(-50%,0) scale(1)', offset: 0.82 },
-                { transform: 'translate(-50%,7px) scale(.78)', offset: 0.9 },
-                { transform: 'translate(-50%,-2px) scale(1.05)', offset: 0.96 },
-                { transform: 'translate(-50%,0) scale(1)' }
-            ], options));
-        }
-        catch (err) {
-            animations.forEach(animation => animation.cancel());
-            console.error('Rouletteanimatie kon niet worden gestart.', err);
-            setError('Je browser kan de rouletteanimatie niet starten. Werk je browser bij en probeer opnieuw.');
-            setSpinning(false);
-            setSpinAnimation(null);
-            return;
-        }
-        Promise.all(animations.map(animation => animation.finished)).then(() => {
-            if (cancelled) return;
-            wheelElement.style.transform = `rotate(${spinAnimation.toWheel}deg)`;
-            ballTrackElement.style.transform = `rotate(${spinAnimation.toBall}deg)`;
-            animations.forEach(animation => animation.cancel());
-            setWheelRotation(spinAnimation.toWheel);
-            setBallRotation(spinAnimation.toBall);
-            setSpinning(false);
-            setSpinAnimation(null);
-            playBallDropSound(spinAnimation.audioContext);
-            const net = Number(spinAnimation.result.payout) - Number(spinAnimation.result.stake);
-            if (net > 0) onCelebrate(`Gewonnen! +${net} punten`, spinAnimation.audioContext);
-        }).catch(err => {
-            if (cancelled) return;
-            console.error('Rouletteanimatie is afgebroken.', err);
-            setError('De rouletteanimatie is afgebroken. Probeer opnieuw.');
-            setSpinning(false);
-            setSpinAnimation(null);
-        });
-        return () => {
-            cancelled = true;
-            animations.forEach(animation => animation.cancel());
-        };
-    }, [spinAnimation]);
-    const totalStake = bets.reduce((total, bet) => total + bet.stake, 0);
-    const remaining = Math.max(0, balance - totalStake);
-    const canPlace = Number.isSafeInteger(Number(amount)) && Number(amount) > 0 && Number(amount) <= remaining && bets.length < 100;
-    const placeBet = (type, value, label) => {
-        const stake = Number(amount);
-        if (!Number.isSafeInteger(stake) || stake < 1) {
-            setError('Kies een inzet van minimaal 1 punt.');
-            return;
-        }
-        if (stake > remaining) {
-            setError('Je totale inzet kan niet hoger zijn dan je saldo.');
-            return;
-        }
-        const id = `${type}:${value === undefined ? '' : value}`;
-        const existing = bets.find(bet => bet.id === id);
-        if (!existing && bets.length >= 100) {
-            setError('Je kunt maximaal 100 verschillende inzetten plaatsen.');
-            return;
-        }
-        setBets(existing
-            ? bets.map(bet => bet.id === id ? { ...bet, stake: bet.stake + stake } : bet)
-            : [...bets, { id, type, value, label, stake }]);
-        setError('');
-    };
-    const handleSpin = async () => {
-        if (spinning || busy || bets.length === 0) return;
-        setSpinning(true);
-        const audioContext = soundEnabled ? getAudioContext() : null;
-        const result = await onSpin(bets.map(({ type, value, stake }) => ({ type, value, stake })));
-        if (result) {
-            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-            const duration = prefersReducedMotion ? 1500 : 4300;
-            const minRotation = prefersReducedMotion ? 720 : 1800;
-            const wheelIndex = europeanRouletteWheel.indexOf(Number(result.winning_number));
-            const landingRotation = -wheelIndex * wheelSegment;
-            const minimumTarget = wheelRotation + minRotation;
-            const targetRotation = minimumTarget + ((landingRotation - minimumTarget) % 360 + 360) % 360;
-            setLastSpin(result);
-            setSpinAnimation({
-                result,
-                duration,
-                audioContext,
-                fromWheel: wheelRotation,
-                toWheel: targetRotation,
-                fromBall: ballRotation,
-                toBall: ballRotation - (prefersReducedMotion ? 1080 : 1800)
-            });
-            setBets([]);
-            setError('');
-        }
-        else {
-            setSpinning(false);
-        }
-    };
-    const wheelSegment = 360 / europeanRouletteWheel.length;
-    const wheelBackground = `conic-gradient(from -${wheelSegment / 2}deg, ${europeanRouletteWheel.map((number, index) => {
-        const color = rouletteColor(number);
-        const fill = color === 'red' ? '#bd394b' : color === 'black' ? '#292a31' : '#14844d';
-        return `${fill} ${index * wheelSegment}deg ${(index + 1) * wheelSegment}deg`;
-    }).join(', ')})`;
-    const wheel = React.createElement("div", { className: "roulette-wheel-wrap", "aria-label": lastSpin ? `Winnende nummer ${lastSpin.winning_number}` : 'Europees roulettewiel' },
-        React.createElement("span", { className: "roulette-wheel-pointer" }),
-        React.createElement("div", {
-            ref: wheelRef,
-            className: "roulette-wheel",
-            style: {
-                background: wheelBackground,
-                transform: `rotate(${wheelRotation}deg)`,
-            }
-        },
-            europeanRouletteWheel.map((number, index) => {
-                const angle = index * wheelSegment;
-                return React.createElement("span", {
-                    className: "roulette-wheel-label",
-                    key: number,
-                    style: { transform: `translate(-50%,-50%) rotate(${angle}deg) translateY(var(--roulette-label-radius,-83px)) rotate(${-angle}deg)` }
-                }, number);
-            })),
-        React.createElement("div", { ref: ballTrackRef, className: "roulette-ball-track", style: { transform: `rotate(${ballRotation}deg)` } },
-            React.createElement("span", { ref: ballRef, className: "roulette-ball" })),
-        React.createElement("div", { className: "roulette-wheel-center" }, lastSpin ? lastSpin.winning_number : "VleesTas"));
-    const numberButton = number => {
-        const color = rouletteColor(number);
-        const bet = bets.find(item => item.type === 'number' && item.value === number);
-        return React.createElement("button", {
-            key: number,
-            type: "button",
-            className: `roulette-number roulette-number--${color}${bet ? ' roulette-number--selected' : ''}`,
-            disabled: !canPlace || busy || spinning,
-            title: `Zet ${amount} punten in op ${number} (35:1)`,
-            onClick: () => placeBet('number', number, `Getal ${number}`)
-        },
-            number,
-            bet && React.createElement("small", null, bet.stake));
-    };
-    const visibleSpins = spins.slice(0, 6);
-    const shownResult = lastSpin || spins.find(spin => spin.user_id === userId);
-    const resultNet = shownResult ? Number(shownResult.payout) - Number(shownResult.stake) : 0;
-    return React.createElement(React.Fragment, null,
-        React.createElement("section", { className: "roulette-panel" },
-        React.createElement("div", { className: "roulette-heading" },
-            React.createElement("div", null,
-                React.createElement("span", { className: "eyebrow" }, "EUROPEES ROULETTE"),
-                React.createElement("h2", null, "Zet je punten in")),
-            React.createElement("div", { className: "roulette-wallet" },
-                React.createElement("span", null, "Saldo"),
-                React.createElement("strong", null, balance, " pt"))),
-        React.createElement("p", { className: "roulette-rules" }, "0–36 · standaard uitbetalingen · je inzet wordt alleen in punten afgerekend. Iedereen start per groep met 100 punten. Nul wint nooit op rood/zwart, even/oneven of 1–18/19–36."),
-            !spinAnimation && wheel,
-        React.createElement("label", { className: "roulette-stake-label" },
-            "Inzet per vakje",
-            React.createElement("span", null, "Punten"),
-            React.createElement("input", {
-                type: "number",
-                min: 1,
-                max: Math.max(1, remaining),
-                step: 1,
-                value: amount,
-                disabled: balance < 1 || busy || spinning,
-                onChange: event => setAmount(event.target.value === '' ? '' : Number(event.target.value))
-            })),
-        React.createElement("h3", null, "Kies een nummer · 35:1"),
-        React.createElement("div", { className: "roulette-number-table" },
-            numberButton(0),
-            React.createElement("div", { className: "roulette-number-grid" }, Array.from({ length: 36 }, (_, index) => numberButton(index + 1)))),
-        React.createElement("h3", null, "Buiteninzetten · 1:1"),
-        React.createElement("div", { className: "roulette-outside-grid" }, rouletteOutsideBets.map(bet => {
-            const existing = bets.find(item => item.type === bet.type);
-            return React.createElement("button", {
-                key: bet.type,
-                type: "button",
-                className: `roulette-outside-bet${bet.type === 'red' ? ' roulette-number--red' : bet.type === 'black' ? ' roulette-number--black' : ''}${existing ? ' roulette-number--selected' : ''}`,
-                disabled: !canPlace || busy || spinning,
-                onClick: () => placeBet(bet.type, undefined, bet.label)
-            }, bet.label, existing && React.createElement("small", null, existing.stake));
-        })),
-        React.createElement("h3", null, "Dozijn en kolom · 2:1"),
-        React.createElement("div", { className: "roulette-group-grid" }, rouletteGroupBets.map(bet => {
-            const existing = bets.find(item => item.type === bet.type);
-            return React.createElement("button", {
-                key: bet.type,
-                type: "button",
-                className: `roulette-group-bet${existing ? ' roulette-number--selected' : ''}`,
-                disabled: !canPlace || busy || spinning,
-                onClick: () => placeBet(bet.type, undefined, bet.label)
-            }, bet.label, existing && React.createElement("small", null, existing.stake));
-        })),
-        React.createElement("section", { className: "roulette-ticket" },
-            React.createElement("div", { className: "roulette-ticket-heading" },
-                React.createElement("strong", null, "Jouw inzetten"),
-                React.createElement("span", null, totalStake, " / ", balance, " pt")),
-            bets.length ? React.createElement("div", { className: "roulette-bet-list" }, bets.map(bet => React.createElement("div", { className: "roulette-bet", key: bet.id },
-                React.createElement("span", null, bet.label),
-                React.createElement("strong", null, bet.stake, " pt"),
-                React.createElement("button", { type: "button", "aria-label": `Verwijder inzet ${bet.label}`, disabled: spinning || busy, onClick: () => setBets(current => current.filter(item => item.id !== bet.id)) }, React.createElement(X, { size: 15 }))))
-                ) : React.createElement("p", { className: "roulette-empty-bets" }, "Kies een inzet om te beginnen."),
-            error && React.createElement("p", { className: "roulette-error", role: "alert" }, error),
-            React.createElement("button", {
-                className: `button button--primary roulette-spin-button${busy || spinning ? ' roulette-spin-button--spinning' : ''}`,
-                type: "button",
-                disabled: busy || spinning || bets.length === 0 || totalStake > balance,
-                onClick: handleSpin
-            }, React.createElement(RotateCcw, { size: 18 }), busy || spinning ? " De kogel rolt..." : " Draaien"),
-            shownResult && React.createElement("div", { className: "roulette-result", "aria-live": "polite" },
-                React.createElement("span", { className: `roulette-result-number roulette-number--${rouletteColor(Number(shownResult.winning_number))}` }, shownResult.winning_number),
-                React.createElement("div", null,
-                    React.createElement("strong", null, lastSpin ? (resultNet > 0 ? `Gewonnen: +${resultNet} punten` : resultNet < 0 ? `Verloren: ${Math.abs(resultNet)} punten` : "Inzet terug") : "Laatste groepsresultaat"),
-                    React.createElement("span", null, "Ingezet ", shownResult.stake, " · uitbetaald ", shownResult.payout, " punten")))),
-        React.createElement("section", { className: "roulette-history" },
-            React.createElement("h3", null, "Recente draaien"),
-            visibleSpins.length ? visibleSpins.map(spin => React.createElement("div", { className: "roulette-history-row", key: spin.id },
-                React.createElement("span", { className: `roulette-history-number roulette-number--${rouletteColor(Number(spin.winning_number))}` }, spin.winning_number),
-                React.createElement("strong", null, members.find(member => member.id === spin.user_id)?.display_name || 'Speler'),
-                React.createElement("span", null, Number(spin.payout) - Number(spin.stake) >= 0 ? `+${Number(spin.payout) - Number(spin.stake)}` : `${Number(spin.payout) - Number(spin.stake)}`, " pt"))) : React.createElement("p", null, "Er zijn nog geen inzetten geplaatst."))),
-        spinAnimation && React.createElement("div", { className: "roulette-spin-screen", role: "dialog", "aria-modal": "true", "aria-label": "Roulette draait" },
-            React.createElement("div", { className: "roulette-spin-screen-content", "aria-live": "polite" },
-                React.createElement("span", { className: "eyebrow" }, "EUROPEES ROULETTE"),
-                React.createElement("h2", null, "De kogel rolt..."),
-                React.createElement("p", null, "Waar vallen jouw punten?"),
-                wheel,
-                React.createElement("strong", null, `Nummer ${spinAnimation.result.winning_number}`))));
-}
 export default function App() {
     const [booting, setBooting] = useState(true), [user, setUser] = useState(null), [profile, setProfile] = useState(null);
     const [groups, setGroups] = useState([]), [groupId, setGroupId] = useState(null), [groupLoading, setGroupLoading] = useState(false);
@@ -625,7 +87,7 @@ export default function App() {
     const [shopItems, setShopItems] = useState([]), [shopPurchases, setShopPurchases] = useState([]);
     const [dailyBonuses, setDailyBonuses] = useState([]), [dailyBonusEarnedToday, setDailyBonusEarnedToday] = useState(false), [dailyBonusAwardDate, setDailyBonusAwardDate] = useState(null);
     const [rouletteSpins, setRouletteSpins] = useState([]), [groupStartingPoints, setGroupStartingPoints] = useState([]);
-    const [tab, setTab] = useState('home'), [modal, setModal] = useState(null), [busy, setBusy] = useState(false);
+    const [tab, setTabState] = useState(() => tabForPath(window.location.pathname)), [modal, setModal] = useState(null), [busy, setBusy] = useState(false);
     const [toast, setToast] = useState(null), [filter, setFilter] = useState('alles'), [search, setSearch] = useState('');
     const [preferences, setPreferences] = useState(readPreferences), [celebration, setCelebration] = useState(null);
     const [settingsName, setSettingsName] = useState('');
@@ -637,6 +99,22 @@ export default function App() {
     const [reloadTick, setReloadTick] = useState(0), [groupsMenu, setGroupsMenu] = useState(false);
     const approvedParticipationIdsRef = useRef(new Set());
     const loadedGroupKeyRef = useRef(null);
+    const setTab = useCallback(nextTab => {
+        const path = pathForTab(nextTab);
+        if (window.location.pathname !== path) {
+            window.history.pushState(null, '', `${path}${window.location.search}${window.location.hash}`);
+        }
+        setTabState(nextTab);
+    }, []);
+    useEffect(() => {
+        const syncTabWithUrl = () => setTabState(tabForPath(window.location.pathname));
+        window.addEventListener('popstate', syncTabWithUrl);
+        const canonicalPath = pathForTab(tabForPath(window.location.pathname));
+        if (!isTabPath(window.location.pathname) || window.location.pathname !== canonicalPath) {
+            window.history.replaceState(null, '', `${canonicalPath}${window.location.search}${window.location.hash}`);
+        }
+        return () => window.removeEventListener('popstate', syncTabWithUrl);
+    }, []);
     const showToast = (text, error = false) => setToast({ text, error });
     const triggerCelebration = (text, audioContext = null) => {
         if (preferences.confetti) {
@@ -875,8 +353,37 @@ export default function App() {
         const matches = filter === 'alles' || (filter === 'beschikbaar' && available) || (filter === 'bezig' && ['accepted', 'rejected'].includes(p?.status)) || (filter === 'pending' && p?.status === 'pending') || (filter === 'voltooid' && p?.status === 'approved');
         return matches && `${c.title} ${c.description} ${categoryFor(c.category).label}`.toLowerCase().includes(search.toLowerCase());
     });
-    const topThree = board.slice(0, 3);
     const latest = participations.filter(p => p.status === 'approved').sort((a, b) => (b.reviewed_at || b.created_at).localeCompare(a.reviewed_at || a.created_at)).slice(0, 4);
+    const pageContent = tab === 'home'
+        ? React.createElement(HomePage, {
+            earned: hasEarnedDailyBonus, me, completed, challenges, active, waiting, myRank, members, board,
+            profile, participations, latest, onTab: setTab, onAction: handleAction, onAdd: () => setModal('add')
+        })
+        : tab === 'challenges'
+            ? React.createElement(ChallengesPage, {
+                earned: hasEarnedDailyBonus, filter, setFilter, search, setSearch, filtered, participations,
+                profile, members, onReload: () => setReloadTick(n => n + 1), onAction: handleAction,
+                onCancel: handleCancelChallenge, onWithdraw: handleWithdrawChallenge, onAdd: () => setModal('add')
+            })
+            : tab === 'shop'
+                ? React.createElement(ShopPage, {
+                    balance: shopBalance, shopItems, shopPurchases, members, profile, busy,
+                    onAdd: () => setModal('shop-add'), onBuy: handleBuyShopItem
+                })
+                : tab === 'roulette'
+                    ? React.createElement(RoulettePanel, {
+                        balance: shopBalance, spins: rouletteSpins, members, userId: profile?.id, busy,
+                        soundEnabled: preferences.sound, onSpin: handleRouletteSpin, onCelebrate: triggerCelebration
+                    })
+                    : tab === 'ranking'
+                        ? React.createElement(RankingPage, { members, board, profile })
+                        : tab === 'settings'
+                            ? React.createElement(SettingsPage, {
+                                settingsName, setSettingsName, profile, busy, onSave: handleSaveProfile, preferences, setPreferences
+                            })
+                            : React.createElement(ReviewsPage, {
+                                reviewQueue, myParticipations, challenges, members, busy, onReview: handleReview, onShowProof: showProof
+                            });
     if (booting)
         return React.createElement("div", { className: "app-boot" },
             React.createElement("div", { className: "brand-mark" },
@@ -886,7 +393,7 @@ export default function App() {
         return React.createElement(React.Fragment, null,
             React.createElement(AuthScreen, { onToast: text => showToast(text) }),
             React.createElement(Toast, { value: toast, onClose: closeToast }));
-    return React.createElement("div", { className: "app-layout" },
+    return React.createElement(AppShell, null,
         React.createElement("aside", { className: "sidebar" },
             React.createElement("div", { className: "brand" },
                 React.createElement("img", { className: "brand-logo", src: "/logo.png", alt: "Al 4 jaar VleesTas" })),
@@ -970,364 +477,14 @@ export default function App() {
                             React.createElement(UserPlus, { size: 18 }),
                             " Groep joinen")))
                     : React.createElement(React.Fragment, null,
-                        React.createElement("div", { className: "page-heading" },
-                            React.createElement("div", null,
-                                React.createElement("div", { className: "eyebrow" },
-                                    React.createElement("span", { className: "eyebrow-line" }),
-                                    " ",
-                                    (activeGroup?.name || 'PROFIEL').toUpperCase(),
-                                    " ",
-                                    React.createElement("span", { className: "eyebrow-sep" }, "/"),
-                                    " ",
-                                    tab === 'home' ? 'DASHBOARD' : navItems.find(x => x.key === tab)?.label.toUpperCase()),
-                                React.createElement("h1", null, tab === 'home' ? `Hey, ${profileName.split(' ')[0]} 👋` : tab === 'challenges' ? 'Alle challenges' : tab === 'shop' ? 'Beloningen van de groep' : tab === 'roulette' ? 'Roulette' : tab === 'ranking' ? 'Het klassement' : tab === 'settings' ? 'Instellingen' : 'Bewijs beoordelen'),
-                                React.createElement("p", null, tab === 'home' ? 'Tijd om punten te pakken. Wie staat er straks bovenaan?' : tab === 'challenges' ? 'Kies je volgende uitdaging. De punten liggen voor het oprapen.' : tab === 'shop' ? 'Ruil je verdiende punten in voor beloningen van je groepsgenoten.' : tab === 'roulette' ? 'Waag je punten aan een draai van het Europese roulettewiel.' : tab === 'ranking' ? 'Alle punten tellen. Wie pakt de winst?' : tab === 'settings' ? 'Pas je profiel en spelvoorkeuren aan.' : 'Help je groepsgenoten aan hun verdiende punten.')),
-                            React.createElement("div", { className: "header-actions" },
-                                React.createElement("button", { className: "button button--outline button--header", onClick: () => setModal('invite') },
-                                    React.createElement(Link2, { size: 17 }),
-                                    " Uitnodigen"),
-                                tab !== 'shop' && tab !== 'roulette' && React.createElement("button", { className: "button button--primary button--header", onClick: () => setModal('add') },
-                                    React.createElement(Plus, { size: 18 }),
-                                    " Challenge maken"))),
-                        groupLoading && challenges.length === 0 ? React.createElement(Loading, null) : React.createElement(React.Fragment, null,
-                            tab === 'home' && React.createElement(React.Fragment, null,
-                                React.createElement(DailyBonusBanner, { earned: hasEarnedDailyBonus }),
-                                React.createElement("section", { className: "hero" },
-                                    React.createElement("div", { className: "hero-copy" },
-                                        React.createElement("span", { className: "hero-kicker" },
-                                            React.createElement(Flame, { size: 16, fill: "currentColor" }),
-                                            " LET THE GAMES BEGIN"),
-                                        React.createElement("h2", null,
-                                            "De jacht op punten",
-                                            React.createElement("br", null),
-                                            React.createElement("em", null, "is geopend.")),
-                                        React.createElement("p", null, "Pak uitdagingen aan, bewijs wat je hebt gedaan en stijg naar de top!"),
-                                        React.createElement("button", { onClick: () => setTab('challenges') },
-                                            "Ontdek challenges ",
-                                            React.createElement(ArrowRight, { size: 17 }))),
-                                    React.createElement("div", { className: "hero-art", "aria-hidden": "true" },
-                                        React.createElement("div", { className: "hero-ring hero-ring--one" }),
-                                        React.createElement("div", { className: "hero-ring hero-ring--two" }),
-                                        React.createElement("div", { className: "hero-trophy" },
-                                            React.createElement(Trophy, { size: 90, strokeWidth: 1.5 })),
-                                        React.createElement("div", { className: "hero-points" },
-                                            React.createElement(Zap, { fill: "currentColor", size: 14 }),
-                                            " +250 XP"),
-                                        React.createElement("span", { className: "hero-star hero-star--one" }, "\u2726"),
-                                        React.createElement("span", { className: "hero-star hero-star--two" }, "\u2734"),
-                                        React.createElement("span", { className: "hero-star hero-star--three" }, "\u2726"))),
-                                React.createElement("div", { className: "stats-grid" },
-                                    React.createElement("div", { className: "stat" },
-                                        React.createElement("div", { className: "stat-icon stat-icon--purple" },
-                                            React.createElement(Zap, { size: 20 })),
-                                        React.createElement("span", null, "Puntenscore"),
-                                        React.createElement("strong", null,
-                                            me?.points || 0,
-                                            " ",
-                                            React.createElement("small", null, "pt")),
-                                        React.createElement("div", { className: "stat-note" },
-                                            React.createElement(TrendingUp, { size: 14 }),
-                                            "Verdiend met challenges")),
-                                    React.createElement("div", { className: "stat" },
-                                        React.createElement("div", { className: "stat-icon stat-icon--orange" },
-                                            React.createElement(Target, { size: 21 })),
-                                        React.createElement("span", null, "Challenges voltooid"),
-                                        React.createElement("strong", null,
-                                            completed,
-                                            " ",
-                                            React.createElement("small", null,
-                                                "van ",
-                                                challenges.length)),
-                                        React.createElement("div", { className: "stat-note" },
-                                            active,
-                                            " bezig \u00B7 ",
-                                            waiting,
-                                            " wachtend")),
-                                    React.createElement("div", { className: "stat" },
-                                        React.createElement("div", { className: "stat-icon stat-icon--blue" },
-                                            React.createElement(Trophy, { size: 20 })),
-                                        React.createElement("span", null, "Jouw positie"),
-                                        React.createElement("strong", null,
-                                            "#",
-                                            myRank || '-',
-                                            " ",
-                                            React.createElement("small", null,
-                                                "van ",
-                                                members.length)),
-                                        React.createElement("div", { className: "stat-note" },
-                                            React.createElement(Users, { size: 14 }),
-                                            " Samen in de strijd"))),
-                                React.createElement("div", { className: "dashboard-columns" },
-                                    React.createElement("section", { className: "panel" },
-                                        React.createElement("div", { className: "panel-heading" },
-                                            React.createElement("div", null,
-                                                React.createElement("h2", null,
-                                                    React.createElement("span", { className: "section-icon" },
-                                                        React.createElement(Target, { size: 19 })),
-                                                    " Challenges voor jou"),
-                                                React.createElement("p", null, "Pak vandaag nog wat extra punten.")),
-                                            React.createElement("button", { className: "text-action", onClick: () => setTab('challenges') },
-                                                "Bekijk alles ",
-                                                React.createElement(ArrowRight, { size: 16 }))),
-                                        React.createElement("div", { className: "quick-challenges" },
-                                                    challenges.filter(c => challengeState(c.id, profile?.id, participations)?.status !== 'approved' && c.created_by !== profile?.id && !c.cancelled_at && !(c.bounty && (c.bounty.cancelled_at || c.bounty.available_slots < 1))).slice(0, 4).map(c => { const cat = categoryFor(c.category), I = IconFor[cat.id], p = challengeState(c.id, profile?.id, participations); return React.createElement("div", { className: "quick-challenge", key: c.id },
-                                                React.createElement("div", { className: `quick-icon quick-icon--${cat.tone}` },
-                                                    React.createElement(I, { size: 20 })),
-                                                React.createElement("div", { className: "quick-details" },
-                                                    React.createElement("strong", null, c.title),
-                                                    React.createElement("span", null,
-                                                        categoryFor(c.category).label,
-                                                        " \u00B7 ",
-                                                        formatDate(c.created_at))),
-                                                React.createElement(PointBadge, { points: c.points }),
-                                                p?.status === 'pending' ? React.createElement(Clock3, { size: 17, color: "#9a8e76" }) : React.createElement("button", { className: "quick-arrow", "aria-label": `Open ${c.title}`, onClick: () => handleAction(c, p) },
-                                                    React.createElement(ArrowRight, { size: 17 }))); }),
-                                            challenges.length === 0 && React.createElement(NoResults, { icon: Target, title: "Nog geen challenges", text: "Maak de allereerste uitdaging van deze groep.", action: React.createElement("button", { className: "button button--primary", onClick: () => setModal('add') },
-                                                    React.createElement(Plus, { size: 16 }),
-                                                    " Maak challenge") }))),
-                                    React.createElement("section", { className: "panel ranking-panel" },
-                                        React.createElement("div", { className: "panel-heading" },
-                                            React.createElement("div", null,
-                                                React.createElement("h2", null,
-                                                    React.createElement("span", { className: "section-icon section-icon--yellow" },
-                                                        React.createElement(Trophy, { size: 19 })),
-                                                    " Topspelers"),
-                                                React.createElement("p", null, "De voorlopige tussenstand.")),
-                                            React.createElement("button", { className: "text-action", onClick: () => setTab('ranking') },
-                                                "Volledig ",
-                                                React.createElement(ArrowRight, { size: 16 }))),
-                                        React.createElement("div", { className: "sidebar-leaders" }, board.slice(0, 5).map((p, i) => React.createElement("div", { className: "sidebar-leader", key: p.id },
-                                            React.createElement("span", { className: `leader-place leader-place--${i + 1}` }, i === 0 ? React.createElement(Crown, { size: 18 }) : i + 1),
-                                            React.createElement(Avatar, { name: p.display_name, size: "sm", index: i }),
-                                            React.createElement("div", null,
-                                                React.createElement("strong", null,
-                                                    p.display_name,
-                                                    p.id === profile?.id && React.createElement("span", { className: "you-tag" }, "jij")),
-                                                React.createElement("small", null,
-                                                    p.completed,
-                                                    " voltooid")),
-                                            React.createElement("b", null,
-                                                p.points,
-                                                " ",
-                                                React.createElement("small", null, "pt"))))))),
-                                React.createElement("section", { className: "activity-section" },
-                                    React.createElement("div", { className: "section-heading" },
-                                        React.createElement("h2", null,
-                                            "Laatste prestaties ",
-                                            React.createElement(Sparkles, { size: 18 })),
-                                        React.createElement("p", null, "Wat er onlangs is gebeurd in de groep.")),
-                                    latest.length ? React.createElement("div", { className: "activity-list" }, latest.map(p => { const c = challenges.find(c => c.id === p.challenge_id), m = members.find(m => m.id === p.user_id); return React.createElement("div", { className: "activity-row", key: p.id },
-                                        React.createElement("div", { className: "activity-check" },
-                                            React.createElement(Check, { size: 17 })),
-                                        React.createElement("div", null,
-                                            React.createElement("strong", null,
-                                                m?.display_name || 'Een vriend',
-                                                " ",
-                                                React.createElement("span", null, "heeft een challenge voltooid")),
-                                            React.createElement("small", null, c?.title || 'Challenge')),
-                                        React.createElement(PointBadge, { points: c?.points || 0 })); })) : React.createElement("div", { className: "activity-placeholder" }, "Nog geen goedgekeurde challenges."))),
-                            tab === 'challenges' && React.createElement(React.Fragment, null,
-                                React.createElement(DailyBonusBanner, { earned: hasEarnedDailyBonus }),
-                                React.createElement("div", { className: "challenge-toolbar" },
-                                    React.createElement("div", { className: "filter-list" }, [{ id: 'alles', label: 'Alle' }, { id: 'beschikbaar', label: 'Beschikbaar' }, { id: 'bezig', label: 'Bezig' }, { id: 'pending', label: 'In beoordeling' }, { id: 'voltooid', label: 'Voltooid' }].map(item => React.createElement("button", { key: item.id, className: `filter-chip ${filter === item.id ? 'filter-chip--active' : ''}`, onClick: () => setFilter(item.id) }, item.label))),
-                                    React.createElement("div", { className: "search-input" },
-                                        React.createElement(Search, { size: 18 }),
-                                        React.createElement("input", { placeholder: "Zoek challenges...", value: search, onChange: e => setSearch(e.target.value) }))),
-                                React.createElement("div", { className: "challenge-meta" },
-                                    React.createElement("span", null,
-                                        React.createElement("strong", null, filtered.length),
-                                        " challenges gevonden"),
-                                    React.createElement("button", { onClick: () => setReloadTick(n => n + 1), className: "muted-action" },
-                                        React.createElement(RefreshCcw, { size: 15 }),
-                                        " Verversen")),
-                                filtered.length ? React.createElement("div", { className: "challenge-grid" }, filtered.map(c => React.createElement(ChallengeCard, { key: c.id, challenge: c, participation: challengeState(c.id, profile?.id, participations), onAction: handleAction, onCancel: handleCancelChallenge, onWithdraw: handleWithdrawChallenge, creator: members.find(m => m.id === c.created_by)?.display_name, viewerId: profile?.id }))) : React.createElement(NoResults, { icon: Search, title: "Geen challenges gevonden", text: "Probeer een ander filter of bedenk zelf een nieuwe uitdaging.", action: React.createElement("button", { className: "button button--primary", onClick: () => setModal('add') },
-                                        React.createElement(Plus, { size: 17 }),
-                                        " Nieuwe challenge") })),
-                                tab === 'shop' && React.createElement(React.Fragment, null,
-                                    React.createElement("section", { className: "shop-balance" },
-                                        React.createElement("div", { className: "shop-balance-icon" },
-                                            React.createElement(Zap, { size: 22, fill: "currentColor" })),
-                                        React.createElement("div", null,
-                                            React.createElement("span", null, "Jouw shoptegoed"),
-                                            React.createElement("strong", null, shopBalance, " punten")),
-                                        React.createElement("p", null, "Bij een aankoop gaan de punten naar de aanbieder.")),
-                                    React.createElement("div", { className: "shop-heading" },
-                                        React.createElement("div", null,
-                                            React.createElement("h2", null, "Aangeboden door jullie"),
-                                            React.createElement("p", null, `${shopItems.length} beloningen van groepsleden`)),
-                                        React.createElement("button", { className: "button button--primary", onClick: () => setModal('shop-add') },
-                                            React.createElement(Plus, { size: 17 }),
-                                            " Beloning aanbieden")),
-                                    shopItems.length ? React.createElement("div", { className: "shop-grid" }, shopItems.map(item => React.createElement(ShopCard, {
-                                        key: item.id,
-                                        item,
-                                        seller: members.find(member => member.id === item.created_by)?.display_name,
-                                        own: item.created_by === profile?.id,
-                                        canAfford: shopBalance >= Number(item.price),
-                                        busy,
-                                        onBuy: () => handleBuyShopItem(item)
-                                    }))) : React.createElement(NoResults, { icon: Gift, title: "De shop is nog leeg", text: "Bied als eerste een leuke beloning aan voor je groepsgenoten."}),
-                                    shopPurchases.length > 0 && React.createElement("section", { className: "shop-sales" },
-                                        React.createElement("h2", null, "Recente aankopen"),
-                                        shopPurchases.slice(0, 6).map(purchase => {
-                                            const buyer = members.find(member => member.id === purchase.buyer_id);
-                                            const seller = members.find(member => member.id === purchase.seller_id);
-                                            const item = shopItems.find(listing => listing.id === purchase.item_id);
-                                            return React.createElement("div", { className: "shop-sale", key: purchase.id },
-                                                React.createElement(Gift, { size: 17 }),
-                                                React.createElement("span", null,
-                                                    buyer?.display_name || 'Een groepslid',
-                                                    " kocht ",
-                                                    item?.title || 'een beloning',
-                                                    " van ",
-                                                    seller?.display_name || 'een groepslid'),
-                                                React.createElement(PointBadge, { points: purchase.price }));
-                                        }))),
-                            tab === 'roulette' && React.createElement(RoulettePanel, {
-                                balance: shopBalance,
-                                spins: rouletteSpins,
-                                members,
-                                userId: profile?.id,
-                                busy,
-                                soundEnabled: preferences.sound,
-                                onSpin: handleRouletteSpin,
-                                onCelebrate: triggerCelebration
-                            }),
-                            tab === 'ranking' && React.createElement(React.Fragment, null,
-                                React.createElement("div", { className: "leaderboard-intro" },
-                                    React.createElement("span", { className: "leaderboard-intro-icon" },
-                                        React.createElement(Trophy, { size: 24 })),
-                                    React.createElement("div", null,
-                                        React.createElement("h2", null, "De ranglijst"),
-                                        React.createElement("p", null, "Alle goedgekeurde challenges worden automatisch meegeteld.")),
-                                    React.createElement("span", { className: "leaderboard-players" },
-                                        React.createElement(Users, { size: 16 }),
-                                        members.length,
-                                        " spelers")),
-                                React.createElement("div", { className: "podium" }, [1, 0, 2].map((position) => { const p = topThree[position]; if (!p)
-                                    return React.createElement("div", { key: position, className: "podium-person podium-person--empty" }); return React.createElement("div", { className: `podium-person podium-person--${position + 1}`, key: p.id },
-                                    React.createElement("span", { className: "podium-crown" }, position === 0 ? React.createElement(Crown, { size: 25, fill: "currentColor" }) : position === 1 ? '✧' : '✦'),
-                                    React.createElement(Avatar, { name: p.display_name, size: "xl", index: position }),
-                                    React.createElement("strong", null, p.display_name),
-                                    React.createElement("span", { className: "podium-score" },
-                                        React.createElement(Zap, { size: 15, fill: "currentColor" }),
-                                        p.points,
-                                        " pt"),
-                                    React.createElement("div", { className: "podium-block" },
-                                        React.createElement("strong", null, position + 1))); })),
-                                React.createElement("div", { className: "leaderboard-list" },
-                                    React.createElement("div", { className: "leaderboard-list-heading" },
-                                        React.createElement("span", null, "RANG"),
-                                        React.createElement("span", null, "SPELER"),
-                                        React.createElement("span", null, "CHALLENGES"),
-                                        React.createElement("span", null, "PUNTEN")),
-                                    board.map((p, i) => React.createElement("div", { className: `leaderboard-line ${p.id === profile?.id ? 'leaderboard-line--self' : ''}`, key: p.id },
-                                        React.createElement("span", { className: "line-rank" }, i === 0 ? React.createElement(Medal, { size: 22 }) : String(i + 1).padStart(2, '0')),
-                                        React.createElement("div", { className: "line-player" },
-                                            React.createElement(Avatar, { name: p.display_name, index: i }),
-                                            React.createElement("div", null,
-                                                React.createElement("strong", null, p.display_name),
-                                                React.createElement("small", null, p.id === profile?.id ? 'Dat ben jij!' : 'Groepslid'))),
-                                        React.createElement("span", { className: "line-completed" },
-                                            p.completed,
-                                            " voltooid"),
-                                        React.createElement("strong", { className: "line-points" },
-                                            p.points,
-                                            " ",
-                                            React.createElement("small", null, "pt")))))),
-                            tab === 'settings' && React.createElement("div", { className: "settings-grid" },
-                                React.createElement("form", { className: "settings-card", onSubmit: handleSaveProfile },
-                                    React.createElement("div", { className: "settings-card-heading" },
-                                        React.createElement("div", { className: "settings-icon" }, React.createElement(Pencil, { size: 19 })),
-                                        React.createElement("div", null,
-                                            React.createElement("h2", null, "Jouw profiel"),
-                                            React.createElement("p", null, "Zo zien je groepsgenoten je."))),
-                                    React.createElement("label", { className: "settings-field" },
-                                        "Weergavenaam",
-                                        React.createElement("input", {
-                                            autoComplete: "name",
-                                            maxLength: 40,
-                                            minLength: 2,
-                                            value: settingsName,
-                                            onChange: event => setSettingsName(event.target.value),
-                                            required: true
-                                        })),
-                                    profile?.email && React.createElement("div", { className: "settings-account-email" },
-                                        React.createElement("span", null, "E-mailadres"),
-                                        React.createElement("strong", null, profile.email)),
-                                    React.createElement("button", { className: "button button--primary", type: "submit", disabled: busy },
-                                        busy ? 'Opslaan...' : 'Naam opslaan',
-                                        React.createElement(Check, { size: 17 }))),
-                                React.createElement("section", { className: "settings-card" },
-                                    React.createElement("div", { className: "settings-card-heading" },
-                                        React.createElement("div", { className: "settings-icon settings-icon--purple" }, React.createElement(Sparkles, { size: 19 })),
-                                        React.createElement("div", null,
-                                            React.createElement("h2", null, "Spelvoorkeuren"),
-                                            React.createElement("p", null, "Kies hoe de app feest viert."))),
-                                    React.createElement("label", { className: "settings-toggle" },
-                                        React.createElement("span", null,
-                                            React.createElement("strong", null, "Feestmuziek"),
-                                            React.createElement("small", null, "Een kort vrolijk muziekje bij winst.")),
-                                        React.createElement("input", {
-                                            type: "checkbox",
-                                            checked: preferences.sound,
-                                            onChange: event => setPreferences(current => ({ ...current, sound: event.target.checked }))
-                                        })),
-                                    React.createElement("label", { className: "settings-toggle" },
-                                        React.createElement("span", null,
-                                            React.createElement("strong", null, "Confetti"),
-                                            React.createElement("small", null, "Confetti bij een voltooide challenge of roulettewinst.")),
-                                        React.createElement("input", {
-                                            type: "checkbox",
-                                            checked: preferences.confetti,
-                                            onChange: event => setPreferences(current => ({ ...current, confetti: event.target.checked }))
-                                        }))),
-                                React.createElement("section", { className: "settings-note" },
-                                    React.createElement(Users, { size: 20 }),
-                                    React.createElement("p", null, "Iedereen ontvangt automatisch 100 startpunten per groep. Je instellingen en naam blijven bewaard."))),
-                            tab === 'reviews' && React.createElement(React.Fragment, null,
-                                React.createElement("div", { className: "review-guide" },
-                                    React.createElement("div", { className: "review-guide-icon" },
-                                        React.createElement(ShieldCheck, { size: 23 })),
-                                    React.createElement("div", null,
-                                        React.createElement("h2", null, "Fair play, echte punten."),
-                                        React.createElement("p", null, "Controleer het bewijs van je vrienden. Je kunt je eigen inzendingen niet goedkeuren.")),
-                                    React.createElement("span", { className: "review-count" },
-                                        reviewQueue.length,
-                                        " open")),
-                                reviewQueue.length ? React.createElement("div", { className: "review-list" }, reviewQueue.map(p => { const c = challenges.find(c => c.id === p.challenge_id), m = members.find(m => m.id === p.user_id); return React.createElement("div", { className: "review-card", key: p.id },
-                                    React.createElement("div", { className: "review-card-head" },
-                                        React.createElement(Avatar, { name: m?.display_name || 'Vriend', index: members.findIndex(m => m.id === p.user_id) }),
-                                        React.createElement("div", null,
-                                            React.createElement("strong", null, m?.display_name || 'Een vriend'),
-                                            React.createElement("span", null,
-                                                "heeft bewijs ingestuurd \u00B7 ",
-                                                formatDate(p.submitted_at || p.created_at))),
-                                        React.createElement(PointBadge, { points: c?.points || 0 })),
-                                    React.createElement("h3", null, c?.title || 'Challenge'),
-                                    p.proof_text && React.createElement("p", { className: "review-proof-text" },
-                                        "\u201C",
-                                        p.proof_text,
-                                        "\u201D"),
-                                    p.proof_path && React.createElement("button", { className: "show-proof", disabled: busy, onClick: () => showProof(p.proof_path) },
-                                        React.createElement(Image, { size: 16 }),
-                                        " Bekijk bewijsfoto ",
-                                        React.createElement(ExternalLink, { size: 14 })),
-                                    React.createElement("div", { className: "review-actions" },
-                                        React.createElement("button", { className: "button button--reject", onClick: () => handleReview(p.id, false), disabled: busy },
-                                            React.createElement(X, { size: 17 }),
-                                            " Afkeuren"),
-                                        React.createElement("button", { className: "button button--approve", onClick: () => handleReview(p.id, true), disabled: busy },
-                                            React.createElement(Check, { size: 17 }),
-                                            " Goedkeuren"))); })) : React.createElement(NoResults, { icon: ShieldCheck, title: "Alles is beoordeeld!", text: "Er staan op dit moment geen inzendingen van je vrienden klaar." }),
-                                myParticipations.filter(p => p.status === 'pending').length > 0 && React.createElement("div", { className: "your-pending" },
-                                    React.createElement("h3", null,
-                                        React.createElement(Clock3, { size: 17 }),
-                                        " Jouw inzendingen in afwachting"),
-                                    myParticipations.filter(p => p.status === 'pending').map(p => React.createElement("div", { key: p.id },
-                                        challenges.find(c => c.id === p.challenge_id)?.title || 'Challenge',
-                                        " ",
-                                        React.createElement(StatusTag, { status: "pending" }))))))))),
+                        React.createElement(PageHeader, {
+                            groupName: activeGroup?.name,
+                            profileName,
+                            tab,
+                            onInvite: () => setModal('invite'),
+                            onAdd: () => setModal('add')
+                        }),
+                        groupLoading && challenges.length === 0 ? React.createElement(Loading, null) : pageContent))),
         React.createElement("nav", { className: "bottom-nav" }, navItems.map(item => { const I = item.icon; return React.createElement("button", { key: item.key, className: tab === item.key ? 'bottom-nav--active' : '', onClick: () => setTab(item.key) },
             React.createElement("span", { className: "bottom-icon" },
                 React.createElement(I, { size: 21 }),
